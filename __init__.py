@@ -44,6 +44,47 @@ class HoldSelection(object):
 class NurbsCurvesFile(pathUtils.JsonFile):
 
     @classmethod
+    def get_connections(cls, node):
+        source = list()
+        destination = list()
+
+        destination_connections = cmds.listConnections(node, source=False, destination=True, plugs=True,
+                                                       connections=True) or list()
+        source_connections = list(reversed(
+            cmds.listConnections(node, source=True, destination=False, plugs=True, connections=True) or list()))
+
+        for index, connection in enumerate(destination_connections + source_connections):
+            plug_split = connection.split('.')
+            connected_node = plug_split.pop(0)
+            attr = '.'.join(plug_split)
+
+            if node == connected_node:
+                connected_node = None
+
+            plug_list = (connected_node, attr)
+            if index % 2 == 0:
+                source.append(plug_list)
+            else:
+                destination.append(plug_list)
+        return zip(source, destination)
+
+    @classmethod
+    def connect(cls, source, destination, target):
+        source_node, source_attr = source
+        destination_node, destination_attr = destination
+
+        source_node = target if source_node is None else source_node
+        destination_node = target if destination_node is None else destination_node
+
+        source_plug = '{0}.{1}'.format(source_node, source_attr)
+        destination_plug = '{0}.{1}'.format(destination_node, destination_attr)
+
+        try:
+            cmds.connectAttr(source_plug, destination_plug, force=True)
+        except:
+            cmds.warning('Unable to connect back \'{}\' to \'{}\''.format(source_plug, destination_plug))
+
+    @classmethod
     def transform_as_dict(cls, transform):
         attributes = (
             'degree',
@@ -79,7 +120,10 @@ class NurbsCurvesFile(pathUtils.JsonFile):
     @classmethod
     def replace_shapes(cls, parent_transform, shapes_info, scale=1.0):
         old_nurbs_curves = [shape for shape in (cmds.listRelatives(parent_transform, shapes=True) or list()) if cmds.objectType(shape, isAType='nurbsCurve')]
-        for curve in old_nurbs_curves:
+        connections = list()
+        for index, curve in enumerate(old_nurbs_curves):
+            if index == 0:
+                connections = cls.get_connections(curve)
             cmds.delete(curve)
 
         for shape_info in shapes_info:
@@ -109,6 +153,9 @@ class NurbsCurvesFile(pathUtils.JsonFile):
             # OverrideColor
             cmds.setAttr('{0}.{1}'.format(curve_shape, 'overrideEnabled'), overrideEnabled)
             cmds.setAttr('{0}.{1}'.format(curve_shape, 'overrideColor'), overrideColor)
+
+            for source, destination in connections:
+                cls.connect(source, destination, curve_shape)
 
             #
             cmds.parent(curve_shape, parent_transform, r=True, s=True)
