@@ -6,6 +6,30 @@ import shiboken2
 from functools import partial
 
 
+class Chunk(object):
+
+    def __init__(self, name=''):
+        self.name = str(name)
+
+    def __enter__(self):
+        cmds.undoInfo(openChunk=True, chunkName=self.name)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        cmds.undoInfo(closeChunk=True)
+
+
+def chunk(func):
+    def wrapper(*args, **kwargs):
+        with Chunk(name=func.__name__):
+            return func(*args, **kwargs)
+
+    return wrapper
+
+
+###
+
+
+@chunk
 def setOverrideColor(dag, color=None):
     if not cmds.objExists('{}.overrideEnabled'.format(dag)):
         cmds.warning('Unable to set override color for \'{}\''.format(dag))
@@ -22,8 +46,8 @@ def setOverrideColor(dag, color=None):
         cmds.setAttr('{}.overrideEnabled'.format(s), False)
 
 
+@chunk
 def setOverrideColorOnSelected(color):
-    print(color)
     [setOverrideColor(c, color) for c in cmds.ls(sl=True)]
 
 ###
