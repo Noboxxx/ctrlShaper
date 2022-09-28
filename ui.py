@@ -6,21 +6,25 @@ import shiboken2
 from functools import partial
 
 
-def setOverrideColor(ctrl, color=None):
+def setOverrideColor(dag, color=None):
+    if not cmds.objExists('{}.overrideEnabled'.format(dag)):
+        cmds.warning('Unable to set override color for \'{}\''.format(dag))
+        return
     if color:
         color = [c/255.0 for c in color]
-        cmds.setAttr('{}.overrideEnabled'.format(ctrl), True)
-        cmds.setAttr('{}.overrideRGBColors'.format(ctrl), True)
-        cmds.setAttr('{}.overrideColorRGB'.format(ctrl), *color)
+        cmds.setAttr('{}.overrideEnabled'.format(dag), True)
+        cmds.setAttr('{}.overrideRGBColors'.format(dag), True)
+        cmds.setAttr('{}.overrideColorRGB'.format(dag), *color)
     else:
-        cmds.setAttr('{}.overrideEnabled'.format(ctrl), False)
+        cmds.setAttr('{}.overrideEnabled'.format(dag), False)
 
-    if cmds.listRelatives(ctrl, shapes=True):
-        cmds.setAttr('{}.overrideEnabled'.format(ctrl), False)
+    for s in cmds.listRelatives(dag, shapes=True) or list():
+        cmds.setAttr('{}.overrideEnabled'.format(s), False)
 
 
 def setOverrideColorOnSelected(color):
-    [setOverrideColor(c, color) for c in cmds.ls(type='transform', sl=True)]
+    print(color)
+    [setOverrideColor(c, color) for c in cmds.ls(sl=True)]
 
 ###
 
