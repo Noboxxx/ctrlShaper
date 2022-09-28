@@ -42,13 +42,12 @@ def setOverrideColor(dag, color=None):
     else:
         cmds.setAttr('{}.overrideEnabled'.format(dag), False)
 
-    for s in cmds.listRelatives(dag, shapes=True) or list():
-        cmds.setAttr('{}.overrideEnabled'.format(s), False)
+    [cmds.setAttr('{}.overrideEnabled'.format(s), False) for s in cmds.listRelatives(dag, shapes=True, fullPath=True) or list()]
 
 
 @chunk
 def setOverrideColorOnSelected(color):
-    [setOverrideColor(c, color) for c in cmds.ls(sl=True)]
+    [setOverrideColor(c, color) for c in cmds.ls(sl=True, long=True)]
 
 ###
 
