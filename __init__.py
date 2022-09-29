@@ -7,6 +7,16 @@ import shiboken2
 from functools import partial
 import json
 
+# 1.0
+# TODO: Save / import
+# TODO: copy / paste
+# TODO: mirror and mirror batch
+# TODO: comment code / doc
+# 2.0
+# TODO: manage shape list
+# TODO: manage color palette
+# TODO: replace shape with auto-scale
+
 with open(r'C:\Users\plaurent\Documents\repo\ctrlShaper\shapes.json', 'r') as f:
     shapesData = json.load(f)
 
