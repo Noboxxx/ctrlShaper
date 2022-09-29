@@ -204,6 +204,9 @@ class CtrlShaper(QDialog):
         copyColor = QCheckBox()
         copyColor.setChecked(True)
 
+        copyShape = QCheckBox()
+        copyShape.setChecked(True)
+
         copyBtn = QPushButton('Copy')
         copyBtn.clicked.connect(self.copyShapes)
 
@@ -211,10 +214,12 @@ class CtrlShaper(QDialog):
         self.pasteBtn.setEnabled(False)
 
         copyPasteLayout = QGridLayout()
-        copyPasteLayout.addWidget(QLabel('Copy Color'), 0, 0)
+        copyPasteLayout.addWidget(QLabel('Apply Color'), 0, 0)
         copyPasteLayout.addWidget(copyColor, 0, 1)
-        copyPasteLayout.addWidget(copyBtn, 1, 0)
-        copyPasteLayout.addWidget(self.pasteBtn, 1, 1)
+        copyPasteLayout.addWidget(QLabel('Apply Shape'), 1, 0)
+        copyPasteLayout.addWidget(copyShape, 1, 1)
+        copyPasteLayout.addWidget(copyBtn, 2, 0)
+        copyPasteLayout.addWidget(self.pasteBtn, 2, 1)
 
         # color
         colorDialogBtn = QPushButton('Custom')
