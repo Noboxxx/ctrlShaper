@@ -1,7 +1,7 @@
 from PySide2.QtCore import Qt, QSize
 from PySide2.QtGui import QIcon, QPixmap, QColor
 from PySide2.QtWidgets import QMainWindow, QHBoxLayout, QVBoxLayout, QPushButton, QGridLayout, QColorDialog, \
-    QComboBox, QLabel, QDoubleSpinBox, QDialog, QMenu, QMenuBar, QAction
+    QComboBox, QLabel, QDoubleSpinBox, QDialog, QMenu, QMenuBar, QAction, QCheckBox, QFrame
 from maya import OpenMayaUI, cmds
 import shiboken2
 from functools import partial
@@ -54,8 +54,16 @@ def scaleShapesOnSelected(factor):
 
 @chunk
 def setShape(ctrl, points=tuple(), degree=1, periodic=False, axes='x', scale=1.0):
-    scaledPoints = [[v * scale for v in p] for p in points]
-    curve = cmds.curve(point=scaledPoints, degree=degree)
+    points = [[v * scale for v in p] for p in points]
+    if axes == 'x':
+        points = [(y, z, x) for x, y, z in points]
+    elif axes == 'y':
+        points = [(x, y, z) for x, y, z in points]
+    elif axes == 'z':
+        points = [(z, x, y) for x, y, z in points]
+    else:
+        raise ValueError('\'x\', \'y\' or \'z\' excepted as axes. Got {}'.format(repr(axes)))
+    curve = cmds.curve(point=points, degree=degree)
     cmds.closeCurve(curve, ch=False, preserveShape=False, replaceOriginal=True) if periodic else None
     sh = cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve')
     cmds.delete(sh) if sh else None
@@ -111,6 +119,12 @@ def setColorOnSelected(color):
     [setColor(c, color) for c in cmds.ls(sl=True, long=True)]
 
 
+def getShapeData(shape):
+    points = getCurvePoints(shape)
+    degree = cmds.getAttr('{}.degree'.format(shape))
+    periodic = cmds.getAttr('{}.form'.format(shape)) == 2
+    return dict(points=points, degree=degree, periodic=periodic)
+
 ###
 
 
@@ -161,7 +175,7 @@ class CtrlShaper(QDialog):
         [self.axeShapeCombo.addItem(i) for i in ('x', 'y', 'z')]
 
         self.shapeCombo = QComboBox()
-        [self.shapeCombo.addItem(name, userData=data) for name, data in shapesData.items()]
+        [self.shapeCombo.addItem(name, userData=data) for name, data in sorted(shapesData.items())]
 
         self.shapeScale = QDoubleSpinBox()
         self.shapeScale.setMinimum(0)
@@ -172,7 +186,7 @@ class CtrlShaper(QDialog):
         shapeOptionsLayout = QGridLayout()
         shapeOptionsLayout.addWidget(QLabel('Shape'), 0, 0)
         shapeOptionsLayout.addWidget(self.shapeCombo, 0, 1)
-        shapeOptionsLayout.addWidget(QLabel('Axes'), 1, 0)
+        shapeOptionsLayout.addWidget(QLabel('Normal'), 1, 0)
         shapeOptionsLayout.addWidget(self.axeShapeCombo, 1, 1)
         shapeOptionsLayout.addWidget(QLabel('Scale'), 2, 0)
         shapeOptionsLayout.addWidget(self.shapeScale, 2, 1)
@@ -184,8 +198,26 @@ class CtrlShaper(QDialog):
         shapeLayout.addLayout(shapeOptionsLayout)
         shapeLayout.addWidget(replaceBtn)
 
+        # copy paste
+        self.copiedShapeData = None
+
+        copyColor = QCheckBox()
+        copyColor.setChecked(True)
+
+        copyBtn = QPushButton('Copy')
+        copyBtn.clicked.connect(self.copyShapes)
+
+        self.pasteBtn = QPushButton('Paste')
+        self.pasteBtn.setEnabled(False)
+
+        copyPasteLayout = QGridLayout()
+        copyPasteLayout.addWidget(QLabel('Copy Color'), 0, 0)
+        copyPasteLayout.addWidget(copyColor, 0, 1)
+        copyPasteLayout.addWidget(copyBtn, 1, 0)
+        copyPasteLayout.addWidget(self.pasteBtn, 1, 1)
+
         # color
-        colorDialogBtn = QPushButton('Color Dialog')
+        colorDialogBtn = QPushButton('Custom')
         colorDialogBtn.setIcon(QIcon(':colorProfile.png'))
         colorDialogBtn.clicked.connect(self.openColorDialog)
 
@@ -208,10 +240,13 @@ class CtrlShaper(QDialog):
         resetColorBtn.setIcon(QIcon(':error.png'))
         resetColorBtn.clicked.connect(partial(setColorOnSelected, None))
 
+        colorSpecialLayout = QHBoxLayout()
+        colorSpecialLayout.addWidget(resetColorBtn)
+        colorSpecialLayout.addWidget(colorDialogBtn)
+
         colorLayout = QVBoxLayout()
         colorLayout.addLayout(favColorLayout)
-        colorLayout.addWidget(resetColorBtn)
-        colorLayout.addWidget(colorDialogBtn)
+        colorLayout.addLayout(colorSpecialLayout)
 
         # transform
         scaleMinusBtn = QPushButton('-')
@@ -247,14 +282,27 @@ class CtrlShaper(QDialog):
         mainLayout = QVBoxLayout(self)
         mainLayout.setAlignment(Qt.AlignTop)
         mainLayout.addWidget(QLabel('<b>Replace Shape</b>'))
+        mainLayout.addWidget(self.createSeparator())
         mainLayout.addLayout(shapeLayout)
-        mainLayout.addSpacing(20)
+        mainLayout.addSpacing(30)
+        mainLayout.addWidget(QLabel('<b>Copy/Paste Shape</b>'))
+        mainLayout.addWidget(self.createSeparator())
+        mainLayout.addLayout(copyPasteLayout)
+        mainLayout.addSpacing(30)
         mainLayout.addWidget(QLabel('<b>Color Override</b>'))
+        mainLayout.addWidget(self.createSeparator())
         mainLayout.addLayout(colorLayout)
-        mainLayout.addSpacing(20)
+        mainLayout.addSpacing(30)
         mainLayout.addWidget(QLabel('<b>Transform Shape</b>'))
+        mainLayout.addWidget(self.createSeparator())
         mainLayout.addLayout(scaleLayout)
         mainLayout.setMenuBar(m)
+
+    def createSeparator(self):
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        return separator
 
     def printShapePoints(self):
         for dag in cmds.ls(sl=True, type='transform'):
@@ -276,3 +324,12 @@ class CtrlShaper(QDialog):
         off = self.scaleFactor.value()
         factor = 1 + off if scaleUp else 1 - off
         scaleShapesOnSelected(factor)
+
+    def copyShapes(self):
+        selection = cmds.ls(sl=True, type='transform')
+        if not selection:
+            return
+        shapes = cmds.listRelatives(selection[-1], shapes=True, type='nurbsCurve')
+        self.copiedShapeData = [getShapeData(s) for s in shapes]
+        print(self.copiedShapeData)
+        self.pasteBtn.setEnabled(True)
