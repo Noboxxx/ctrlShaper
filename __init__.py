@@ -1,11 +1,12 @@
 from PySide2.QtCore import Qt, QSize
 from PySide2.QtGui import QIcon, QPixmap, QColor
 from PySide2.QtWidgets import QMainWindow, QHBoxLayout, QVBoxLayout, QPushButton, QGridLayout, QColorDialog, \
-    QComboBox, QLabel, QDoubleSpinBox, QDialog, QMenu, QMenuBar, QAction, QCheckBox, QFrame
+    QComboBox, QLabel, QDoubleSpinBox, QDialog, QMenu, QMenuBar, QAction, QCheckBox, QFrame, qApp
 from maya import OpenMayaUI, cmds
 import shiboken2
 from functools import partial
 import json
+import os
 
 # 1.0
 # TODO: Save / import
@@ -16,8 +17,12 @@ import json
 # TODO: manage shape list
 # TODO: manage color palette
 # TODO: replace shape with auto-scale
+# TODO: dockable window
 
-with open(r'C:\Users\plaurent\Documents\repo\ctrlShaper\shapes.json', 'r') as f:
+dpiF = qApp.desktop().logicalDpiX() / 96.0
+
+shapesDir = os.path.dirname(os.path.abspath(__file__))
+with open('{}/shapes.json'.format(shapesDir), 'r') as f:
     shapesData = json.load(f)
 
 
@@ -44,16 +49,23 @@ def chunk(func):
 ###
 
 
-def getCurvePoints(shape):
+def getCurveData(shape):
     spans = cmds.getAttr('{}.spans'.format(shape))
     cvCount = spans if cmds.getAttr('{}.form'.format(shape)) == 2 else cmds.getAttr('{}.degree'.format(shape)) + spans
-    return [cmds.xform('{}.cv[{}]'.format(shape, i), q=True, translation=True) for i in range(cvCount)]
+    degree = cmds.getAttr('{}.degree'.format(shape))
+    periodic = cmds.getAttr('{}.form'.format(shape)) == 2
+    points = [cmds.xform('{}.cv[{}]'.format(shape, i), q=True, translation=True) for i in range(cvCount)]
+    return dict(
+        degree=degree,
+        periodic=periodic,
+        points=points
+    )
 
 
 @chunk
 def scaleShapes(ctrl, factor):
     for s in cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve') or list():
-        scaledPoints = [[v * factor for v in p] for p in getCurvePoints(s)]
+        scaledPoints = [[v * factor for v in p] for p in getCurveData(s)]
         [cmds.xform('{}.cv[{}]'.format(s, i), translation=p) for i, p in enumerate(scaledPoints)]
 
 
@@ -98,6 +110,19 @@ def resetOverrideColor(dag):
     cmds.setAttr('{}.overrideColor'.format(dag), 0)
 
 
+def getOverrideColor(dag):
+    enabled = cmds.getAttr('{}.overrideEnabled'.format(dag))
+    mode = cmds.getAttr('{}.overrideRGBColors'.format(dag))
+    rgbColor = cmds.getAttr('{}.overrideColorRGB'.format(dag))
+    indexColor = cmds.getAttr('{}.overrideColor'.format(dag))
+    return dict(
+        enabled=enabled,
+        mode=mode,
+        rgbColor=rgbColor,
+        indexColor=indexColor
+    )
+
+
 @chunk
 def setShapeOnSelected(points=tuple(), degree=1, periodic=False, axes='x', scale=1.0):
     ctrls = cmds.ls(sl=True, long=True, type='transform')
@@ -120,7 +145,7 @@ def setColor(dag, color=None):
     color = color.getRgb()[0:3] if isinstance(color, QColor) else color
     color = [c/255.0 for c in color]
 
-    shapes = cmds.listRelatives(dag, shapes=True) or list()
+    shapes = cmds.listRelatives(dag, shapes=True, fullPath=True) or list()
     [setOverrideColor(s, color) for s in shapes] if shapes else setOverrideColor(dag, color)
 
 
@@ -130,10 +155,14 @@ def setColorOnSelected(color):
 
 
 def getShapeData(shape):
-    points = getCurvePoints(shape)
-    degree = cmds.getAttr('{}.degree'.format(shape))
-    periodic = cmds.getAttr('{}.form'.format(shape)) == 2
-    return dict(points=points, degree=degree, periodic=periodic)
+    curveData = getCurveData(shape)
+    colorData = getOverrideColor(shape)
+    curveData.update(colorData)
+
+    return dict(
+        curve=curveData,
+        color=colorData
+    )
 
 ###
 
@@ -161,7 +190,7 @@ class ColorButton(QPushButton):
         self.clicked.connect(partial(setColorOnSelected, self.color))
 
         if color:
-            pixmap = QPixmap(20, 20)
+            pixmap = QPixmap(20 * dpiF, 20 * dpiF)
             pixmap.fill(QColor(*color))
 
             icon = QIcon()
@@ -201,7 +230,7 @@ class CtrlShaper(QDialog):
         shapeOptionsLayout.addWidget(QLabel('Scale'), 2, 0)
         shapeOptionsLayout.addWidget(self.shapeScale, 2, 1)
 
-        replaceBtn = QPushButton('replace')
+        replaceBtn = QPushButton('Replace')
         replaceBtn.clicked.connect(self.replaceShape)
 
         shapeLayout = QVBoxLayout()
@@ -222,6 +251,7 @@ class CtrlShaper(QDialog):
 
         self.pasteBtn = QPushButton('Paste')
         self.pasteBtn.setEnabled(False)
+        self.pasteBtn.clicked.connect(self.pasteShapes)
 
         copyPasteLayout = QGridLayout()
         copyPasteLayout.addWidget(QLabel('Apply Color'), 0, 0)
@@ -265,11 +295,11 @@ class CtrlShaper(QDialog):
 
         # transform
         scaleMinusBtn = QPushButton('-')
-        scaleMinusBtn.setFixedSize(QSize(16, 16))
+        scaleMinusBtn.setFixedSize(QSize(16 * dpiF, 16 * dpiF))
         scaleMinusBtn.clicked.connect(partial(self.scaleShape, False))
 
         scalePlusBtn = QPushButton('+')
-        scalePlusBtn.setFixedSize(QSize(16, 16))
+        scalePlusBtn.setFixedSize(QSize(16 * dpiF, 16 * dpiF))
         scalePlusBtn.clicked.connect(partial(self.scaleShape, True))
 
         self.scaleFactor = QDoubleSpinBox()
@@ -321,8 +351,8 @@ class CtrlShaper(QDialog):
 
     def printShapePoints(self):
         for dag in cmds.ls(sl=True, type='transform'):
-            for s in cmds.listRelatives(dag, shapes=True, type='nurbsCurve'):
-                print(getCurvePoints(s))
+            for s in cmds.listRelatives(dag, shapes=True, type='nurbsCurve', fullPath=True):
+                print(getCurveData(s))
 
     def openColorDialog(self):
         colorDialog = QColorDialog(self)
@@ -341,10 +371,15 @@ class CtrlShaper(QDialog):
         scaleShapesOnSelected(factor)
 
     def copyShapes(self):
-        selection = cmds.ls(sl=True, type='transform')
+        selection = cmds.ls(sl=True, long=True, type='transform')
         if not selection:
             return
-        shapes = cmds.listRelatives(selection[-1], shapes=True, type='nurbsCurve')
+        shapes = cmds.listRelatives(selection[-1], shapes=True, type='nurbsCurve', fullPath=True)
         self.copiedShapeData = [getShapeData(s) for s in shapes]
         print(self.copiedShapeData)
         self.pasteBtn.setEnabled(True)
+
+    def pasteShapes(self):
+        selection = cmds.ls(sl=True, long=True, type='transform')
+        for dag in selection:
+            setShape(dag, **self.copiedShapeData[0]['curve'])
