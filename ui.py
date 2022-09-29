@@ -1,7 +1,7 @@
 from PySide2.QtCore import Qt, QSize
 from PySide2.QtGui import QIcon, QPixmap, QColor
-from PySide2.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QGridLayout, QColorDialog, \
-    QComboBox, QLineEdit, QLabel, QDoubleSpinBox, QToolBox, QDialog, QApplication, QSpinBox
+from PySide2.QtWidgets import QMainWindow, QHBoxLayout, QVBoxLayout, QPushButton, QGridLayout, QColorDialog, \
+    QComboBox, QLabel, QDoubleSpinBox, QDialog, QMenu, QMenuBar, QAction
 from maya import OpenMayaUI, cmds
 import shiboken2
 from functools import partial
@@ -53,8 +53,9 @@ def scaleShapesOnSelected(factor):
 
 
 @chunk
-def setShape(ctrl, points=tuple(), degree=1, periodic=False):
-    curve = cmds.curve(point=points, degree=degree)
+def setShape(ctrl, points=tuple(), degree=1, periodic=False, axes='x', scale=1.0):
+    scaledPoints = [[v * scale for v in p] for p in points]
+    curve = cmds.curve(point=scaledPoints, degree=degree)
     cmds.closeCurve(curve, ch=False, preserveShape=False, replaceOriginal=True) if periodic else None
     sh = cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve')
     cmds.delete(sh) if sh else None
@@ -66,7 +67,7 @@ def setShape(ctrl, points=tuple(), degree=1, periodic=False):
 
 
 @chunk
-def setOverrideColor_(dag, color):
+def setOverrideColor(dag, color):
     cmds.setAttr('{}.overrideEnabled'.format(dag), True)
     cmds.setAttr('{}.overrideRGBColors'.format(dag), True)
     cmds.setAttr('{}.overrideColorRGB'.format(dag), *color)
@@ -80,9 +81,9 @@ def resetOverrideColor(dag):
 
 
 @chunk
-def setShapeOnSelected(points=tuple(), degree=1, periodic=False):
+def setShapeOnSelected(points=tuple(), degree=1, periodic=False, axes='x', scale=1.0):
     ctrls = cmds.ls(sl=True, long=True, type='transform')
-    [setShape(ctrl, points=points, degree=degree, periodic=periodic) for ctrl in ctrls]
+    [setShape(ctrl, points=points, degree=degree, periodic=periodic, axes=axes, scale=scale) for ctrl in ctrls]
     cmds.select(ctrls)
 
 
@@ -102,7 +103,7 @@ def setColor(dag, color=None):
     color = [c/255.0 for c in color]
 
     shapes = cmds.listRelatives(dag, shapes=True) or list()
-    [setOverrideColor_(s, color) for s in shapes] if shapes else setOverrideColor_(dag, color)
+    [setOverrideColor(s, color) for s in shapes] if shapes else setOverrideColor(dag, color)
 
 
 @chunk
@@ -156,34 +157,31 @@ class CtrlShaper(QDialog):
         self.setWindowTitle('Ctrl Shaper')
 
         # shape
-        xNormalSpinBox = QDoubleSpinBox()
-        xNormalSpinBox.setValue(1)
-        xNormalSpinBox.setMinimum(-1)
-        xNormalSpinBox.setMaximum(1)
-
-        yNormalSpinBox = QDoubleSpinBox()
-        yNormalSpinBox.setMinimum(-1)
-        yNormalSpinBox.setMaximum(1)
-
-        zNormalSpinBox = QDoubleSpinBox()
-        zNormalSpinBox.setMinimum(-1)
-        zNormalSpinBox.setMaximum(1)
-
-        normalLayout = QHBoxLayout()
-        normalLayout.addWidget(QLabel('Normal'))
-        normalLayout.addWidget(xNormalSpinBox)
-        normalLayout.addWidget(yNormalSpinBox)
-        normalLayout.addWidget(zNormalSpinBox)
-
-        replaceBtn = QPushButton('replace')
-        replaceBtn.clicked.connect(self.replaceShape)
+        self.axeShapeCombo = QComboBox()
+        [self.axeShapeCombo.addItem(i) for i in ('x', 'y', 'z')]
 
         self.shapeCombo = QComboBox()
         [self.shapeCombo.addItem(name, userData=data) for name, data in shapesData.items()]
 
+        self.shapeScale = QDoubleSpinBox()
+        self.shapeScale.setMinimum(0)
+        self.shapeScale.setMaximum(1000)
+        self.shapeScale.setValue(1)
+        self.shapeScale.setSingleStep(.1)
+
+        shapeOptionsLayout = QGridLayout()
+        shapeOptionsLayout.addWidget(QLabel('Shape'), 0, 0)
+        shapeOptionsLayout.addWidget(self.shapeCombo, 0, 1)
+        shapeOptionsLayout.addWidget(QLabel('Axes'), 1, 0)
+        shapeOptionsLayout.addWidget(self.axeShapeCombo, 1, 1)
+        shapeOptionsLayout.addWidget(QLabel('Scale'), 2, 0)
+        shapeOptionsLayout.addWidget(self.shapeScale, 2, 1)
+
+        replaceBtn = QPushButton('replace')
+        replaceBtn.clicked.connect(self.replaceShape)
+
         shapeLayout = QVBoxLayout()
-        shapeLayout.addWidget(self.shapeCombo)
-        shapeLayout.addLayout(normalLayout)
+        shapeLayout.addLayout(shapeOptionsLayout)
         shapeLayout.addWidget(replaceBtn)
 
         # color
@@ -235,6 +233,16 @@ class CtrlShaper(QDialog):
         scaleLayout.addWidget(self.scaleFactor)
         scaleLayout.addWidget(scalePlusBtn)
 
+        # menu
+        printShapeAct = QAction('Print Shape\'s Points', self)
+        printShapeAct.triggered.connect(self.printShapePoints)
+
+        editMenu = QMenu('Edit')
+        editMenu.addAction(printShapeAct)
+
+        m = QMenuBar()
+        m.addMenu(editMenu)
+
         # main layout
         mainLayout = QVBoxLayout(self)
         mainLayout.setAlignment(Qt.AlignTop)
@@ -246,6 +254,12 @@ class CtrlShaper(QDialog):
         mainLayout.addSpacing(20)
         mainLayout.addWidget(QLabel('<b>Transform Shape</b>'))
         mainLayout.addLayout(scaleLayout)
+        mainLayout.setMenuBar(m)
+
+    def printShapePoints(self):
+        for dag in cmds.ls(sl=True, type='transform'):
+            for s in cmds.listRelatives(dag, shapes=True, type='nurbsCurve'):
+                print(getCurvePoints(s))
 
     def openColorDialog(self):
         colorDialog = QColorDialog(self)
@@ -254,6 +268,8 @@ class CtrlShaper(QDialog):
 
     def replaceShape(self):
         data = self.shapeCombo.currentData()
+        data['axes'] = self.axeShapeCombo.currentText()
+        data['scale'] = self.shapeScale.value()
         setShapeOnSelected(**data)
 
     def scaleShape(self, scaleUp=True):
