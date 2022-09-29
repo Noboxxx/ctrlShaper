@@ -1,5 +1,14 @@
-from maya import cmds
-from . import pathUtils
+from PySide2.QtCore import Qt, QSize
+from PySide2.QtGui import QIcon, QPixmap, QColor
+from PySide2.QtWidgets import QMainWindow, QHBoxLayout, QVBoxLayout, QPushButton, QGridLayout, QColorDialog, \
+    QComboBox, QLabel, QDoubleSpinBox, QDialog, QMenu, QMenuBar, QAction, QCheckBox, QFrame
+from maya import OpenMayaUI, cmds
+import shiboken2
+from functools import partial
+import json
+
+with open(r'C:\Users\plaurent\Documents\repo\ctrlShaper\shapes.json', 'r') as f:
+    shapesData = json.load(f)
 
 
 class Chunk(object):
@@ -22,167 +31,310 @@ def chunk(func):
     return wrapper
 
 
-def hold_selection(func):
-    def wrapper(*args, **kwargs):
-        with HoldSelection():
-            return func(*args, **kwargs)
-    return wrapper
+###
 
 
-class HoldSelection(object):
-
-    def __init__(self):
-        self.selection = list()
-
-    def __enter__(self):
-        self.selection = cmds.ls(sl=True) or list()
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        cmds.select(self.selection)
+def getCurvePoints(shape):
+    spans = cmds.getAttr('{}.spans'.format(shape))
+    cvCount = spans if cmds.getAttr('{}.form'.format(shape)) == 2 else cmds.getAttr('{}.degree'.format(shape)) + spans
+    return [cmds.xform('{}.cv[{}]'.format(shape, i), q=True, translation=True) for i in range(cvCount)]
 
 
-class NurbsCurvesFile(pathUtils.JsonFile):
+@chunk
+def scaleShapes(ctrl, factor):
+    for s in cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve') or list():
+        scaledPoints = [[v * factor for v in p] for p in getCurvePoints(s)]
+        [cmds.xform('{}.cv[{}]'.format(s, i), translation=p) for i, p in enumerate(scaledPoints)]
 
-    @classmethod
-    def get_connections(cls, node):
-        source = list()
-        destination = list()
 
-        destination_connections = cmds.listConnections(node, source=False, destination=True, plugs=True,
-                                                       connections=True) or list()
-        source_connections = list(reversed(
-            cmds.listConnections(node, source=True, destination=False, plugs=True, connections=True) or list()))
+@chunk
+def scaleShapesOnSelected(factor):
+    [scaleShapes(c, factor) for c in cmds.ls(sl=True, type='transform', long=True)]
 
-        for index, connection in enumerate(destination_connections + source_connections):
-            plug_split = connection.split('.')
-            connected_node = plug_split.pop(0)
-            attr = '.'.join(plug_split)
 
-            if node == connected_node:
-                connected_node = None
+@chunk
+def setShape(ctrl, points=tuple(), degree=1, periodic=False, axes='x', scale=1.0):
+    points = [[v * scale for v in p] for p in points]
+    if axes == 'x':
+        points = [(y, z, x) for x, y, z in points]
+    elif axes == 'y':
+        points = [(x, y, z) for x, y, z in points]
+    elif axes == 'z':
+        points = [(z, x, y) for x, y, z in points]
+    else:
+        raise ValueError('\'x\', \'y\' or \'z\' excepted as axes. Got {}'.format(repr(axes)))
+    curve = cmds.curve(point=points, degree=degree)
+    cmds.closeCurve(curve, ch=False, preserveShape=False, replaceOriginal=True) if periodic else None
+    sh = cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve')
+    cmds.delete(sh) if sh else None
+    cmds.parent(cmds.listRelatives(curve, shapes=True), ctrl, r=True, s=True)
+    cmds.delete(curve)
+    ctrlShortName = ctrl.split('|')[-1]
+    [cmds.rename(s, '{}Shape#'.format(ctrlShortName)) for s in cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve') or list()]
+    cmds.select(ctrl)
 
-            plug_list = (connected_node, attr)
-            if index % 2 == 0:
-                source.append(plug_list)
-            else:
-                destination.append(plug_list)
-        return zip(source, destination)
 
-    @classmethod
-    def connect(cls, source, destination, target):
-        source_node, source_attr = source
-        destination_node, destination_attr = destination
+@chunk
+def setOverrideColor(dag, color):
+    cmds.setAttr('{}.overrideEnabled'.format(dag), True)
+    cmds.setAttr('{}.overrideRGBColors'.format(dag), True)
+    cmds.setAttr('{}.overrideColorRGB'.format(dag), *color)
 
-        source_node = target if source_node is None else source_node
-        destination_node = target if destination_node is None else destination_node
 
-        source_plug = '{0}.{1}'.format(source_node, source_attr)
-        destination_plug = '{0}.{1}'.format(destination_node, destination_attr)
+@chunk
+def resetOverrideColor(dag):
+    cmds.setAttr('{}.overrideRGBColors'.format(dag), False)
+    cmds.setAttr('{}.overrideColorRGB'.format(dag), 0, 0, 0)
+    cmds.setAttr('{}.overrideColor'.format(dag), 0)
 
-        try:
-            cmds.connectAttr(source_plug, destination_plug, force=True)
-        except:
-            cmds.warning('Unable to connect back \'{}\' to \'{}\''.format(source_plug, destination_plug))
 
-    @classmethod
-    def transform_as_dict(cls, transform):
-        attributes = (
-            'degree',
-            'form',
-            'overrideColor',
-            'overrideEnabled',
-        )
+@chunk
+def setShapeOnSelected(points=tuple(), degree=1, periodic=False, axes='x', scale=1.0):
+    ctrls = cmds.ls(sl=True, long=True, type='transform')
+    [setShape(ctrl, points=points, degree=degree, periodic=periodic, axes=axes, scale=scale) for ctrl in ctrls]
+    cmds.select(ctrls)
 
-        data = list()
-        shapes = [shape for shape in (cmds.listRelatives(transform, shapes=True) or list()) if cmds.objectType(shape, isAType='nurbsCurve')]
-        for shape in shapes:
-            info = dict()
 
-            # controlPoints
-            control_points = list()
-            control_points_plug = '{0}.{1}'.format(shape, 'controlPoints')
-            control_points_size = cmds.getAttr(control_points_plug, size=True)
-            for index in range(control_points_size):
-                compound_attr = '{0}[{1}]'.format(control_points_plug, index)
-                control_points.append(cmds.getAttr(compound_attr)[0])
+@chunk
+def setColor(dag, color=None):
+    if not cmds.objExists('{}.overrideEnabled'.format(dag)):
+        cmds.warning('Unable to set override color for \'{}\''.format(dag))
+        return
 
-            # info
-            info['controlPoints'] = control_points
-            info['name'] = shape
-            for attr in attributes:
-                info[attr] = cmds.getAttr('{0}.{1}'.format(shape, attr))
+    resetOverrideColor(dag)
+    [resetOverrideColor(s) for s in cmds.listRelatives(dag, shapes=True, fullPath=True) or list()]
 
-            # Gather info
-            data.append(info)
+    if not color:
+        return
 
-        return data
+    color = color.getRgb()[0:3] if isinstance(color, QColor) else color
+    color = [c/255.0 for c in color]
 
-    @classmethod
-    def replace_shapes(cls, parent_transform, shapes_info, scale=1.0):
-        old_nurbs_curves = [shape for shape in (cmds.listRelatives(parent_transform, shapes=True) or list()) if cmds.objectType(shape, isAType='nurbsCurve')]
-        connections = list()
-        for index, curve in enumerate(old_nurbs_curves):
-            if index == 0:
-                connections = cls.get_connections(curve)
-            cmds.delete(curve)
+    shapes = cmds.listRelatives(dag, shapes=True) or list()
+    [setOverrideColor(s, color) for s in shapes] if shapes else setOverrideColor(dag, color)
 
-        for shape_info in shapes_info:
-            degree = shape_info['degree']
-            form = shape_info['form']
-            overrideColor = shape_info['overrideColor']
-            overrideEnabled = shape_info['overrideEnabled']
 
-            # Scale control points
-            controlPoints = list()
-            for cp in shape_info['controlPoints']:
-                controlPoints.append(
-                    (
-                        cp[0] * scale,
-                        cp[1] * scale,
-                        cp[2] * scale,
-                    )
-                )
+@chunk
+def setColorOnSelected(color):
+    [setColor(c, color) for c in cmds.ls(sl=True, long=True)]
 
-            periodic = True if form == 3 else False
-            knots = range(len(controlPoints) + degree - 1)  # Works but aint probably right :shrug:
 
-            # Create curve
-            curve_transform = cmds.curve(degree=degree, point=controlPoints, periodic=periodic, knot=knots)
-            curve_shape = cmds.listRelatives(curve_transform, shapes=True)[0]
+def getShapeData(shape):
+    points = getCurvePoints(shape)
+    degree = cmds.getAttr('{}.degree'.format(shape))
+    periodic = cmds.getAttr('{}.form'.format(shape)) == 2
+    return dict(points=points, degree=degree, periodic=periodic)
 
-            # OverrideColor
-            cmds.setAttr('{0}.{1}'.format(curve_shape, 'overrideEnabled'), overrideEnabled)
-            cmds.setAttr('{0}.{1}'.format(curve_shape, 'overrideColor'), overrideColor)
+###
 
-            for source, destination in connections:
-                cls.connect(source, destination, curve_shape)
 
-            #
-            cmds.parent(curve_shape, parent_transform, r=True, s=True)
-            cmds.rename(curve_shape, '{0}Shape#'.format(parent_transform))
-            cmds.delete(curve_transform)
+def killOtherInstances(self):
+    for child in self.parent().children():
+        if child == self:
+            continue
+        if child.__class__.__name__ != self.__class__.__name__:
+            continue
+        child.deleteLater()
 
-    @classmethod
-    def create(cls, transforms, location=None, file_name=None, force=False):
-        transforms = [str(trs) for trs in transforms]
-        data = dict()
 
-        for transform in transforms:
-            data[transform] = cls.transform_as_dict(transform)
+def getMayaMainWindow():
+    pointer = OpenMayaUI.MQtUtil.mainWindow()
+    return shiboken2.wrapInstance(long(pointer), QMainWindow)
 
-        return cls.create_file(data=data, location=location, file_name=file_name, force=force)
 
-    @chunk
-    @hold_selection
-    def load(self, nodes_filter=None, scale=1.0):
-        data = self.read()
+class ColorButton(QPushButton):
 
-        for transform, shapes_info in data.items():
-            if nodes_filter is not None:
-                if transform not in nodes_filter:
-                    continue
+    def __init__(self, color):
+        super(ColorButton, self).__init__()
 
-            if cmds.objExists(transform):
-                self.replace_shapes(transform, shapes_info, scale=scale)
-            else:
-                cmds.warning('\'{0}\' does not exist.'.format(transform))
+        self.color = color
+        self.clicked.connect(partial(setColorOnSelected, self.color))
+
+        if color:
+            pixmap = QPixmap(20, 20)
+            pixmap.fill(QColor(*color))
+
+            icon = QIcon()
+            icon.addPixmap(pixmap)
+
+            self.setIcon(icon)
+        else:
+            self.setIcon(QIcon(':error.png'))
+
+
+class CtrlShaper(QDialog):
+
+    def __init__(self, parent=getMayaMainWindow()):
+        super(CtrlShaper, self).__init__(parent=parent)
+        killOtherInstances(self)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setWindowTitle('Ctrl Shaper')
+
+        # shape
+        self.axeShapeCombo = QComboBox()
+        [self.axeShapeCombo.addItem(i) for i in ('x', 'y', 'z')]
+
+        self.shapeCombo = QComboBox()
+        [self.shapeCombo.addItem(name, userData=data) for name, data in sorted(shapesData.items())]
+
+        self.shapeScale = QDoubleSpinBox()
+        self.shapeScale.setMinimum(0)
+        self.shapeScale.setMaximum(1000)
+        self.shapeScale.setValue(1)
+        self.shapeScale.setSingleStep(.1)
+
+        shapeOptionsLayout = QGridLayout()
+        shapeOptionsLayout.addWidget(QLabel('Shape'), 0, 0)
+        shapeOptionsLayout.addWidget(self.shapeCombo, 0, 1)
+        shapeOptionsLayout.addWidget(QLabel('Normal'), 1, 0)
+        shapeOptionsLayout.addWidget(self.axeShapeCombo, 1, 1)
+        shapeOptionsLayout.addWidget(QLabel('Scale'), 2, 0)
+        shapeOptionsLayout.addWidget(self.shapeScale, 2, 1)
+
+        replaceBtn = QPushButton('replace')
+        replaceBtn.clicked.connect(self.replaceShape)
+
+        shapeLayout = QVBoxLayout()
+        shapeLayout.addLayout(shapeOptionsLayout)
+        shapeLayout.addWidget(replaceBtn)
+
+        # copy paste
+        self.copiedShapeData = None
+
+        copyColor = QCheckBox()
+        copyColor.setChecked(True)
+
+        copyShape = QCheckBox()
+        copyShape.setChecked(True)
+
+        copyBtn = QPushButton('Copy')
+        copyBtn.clicked.connect(self.copyShapes)
+
+        self.pasteBtn = QPushButton('Paste')
+        self.pasteBtn.setEnabled(False)
+
+        copyPasteLayout = QGridLayout()
+        copyPasteLayout.addWidget(QLabel('Apply Color'), 0, 0)
+        copyPasteLayout.addWidget(copyColor, 0, 1)
+        copyPasteLayout.addWidget(QLabel('Apply Shape'), 1, 0)
+        copyPasteLayout.addWidget(copyShape, 1, 1)
+        copyPasteLayout.addWidget(copyBtn, 2, 0)
+        copyPasteLayout.addWidget(self.pasteBtn, 2, 1)
+
+        # color
+        colorDialogBtn = QPushButton('Custom')
+        colorDialogBtn.setIcon(QIcon(':colorProfile.png'))
+        colorDialogBtn.clicked.connect(self.openColorDialog)
+
+        favColorLayout = QGridLayout()
+        favColorLayout.addWidget(ColorButton((255, 0, 0)), 0, 0)
+        favColorLayout.addWidget(ColorButton((0, 255, 0)), 0, 1)
+        favColorLayout.addWidget(ColorButton((0, 0, 255)), 0, 2)
+        favColorLayout.addWidget(ColorButton((255, 255, 0)), 0, 3)
+        favColorLayout.addWidget(ColorButton((0, 255, 255)), 0, 4)
+        favColorLayout.addWidget(ColorButton((255, 0, 255)), 0, 5)
+
+        favColorLayout.addWidget(ColorButton((127, 0, 0)), 1, 0)
+        favColorLayout.addWidget(ColorButton((0, 127, 0)), 1, 1)
+        favColorLayout.addWidget(ColorButton((0, 0, 127)), 1, 2)
+        favColorLayout.addWidget(ColorButton((127, 127, 0)), 1, 3)
+        favColorLayout.addWidget(ColorButton((0, 127, 127)), 1, 4)
+        favColorLayout.addWidget(ColorButton((127, 0, 127)), 1, 5)
+
+        resetColorBtn = QPushButton('Default')
+        resetColorBtn.setIcon(QIcon(':error.png'))
+        resetColorBtn.clicked.connect(partial(setColorOnSelected, None))
+
+        colorSpecialLayout = QHBoxLayout()
+        colorSpecialLayout.addWidget(resetColorBtn)
+        colorSpecialLayout.addWidget(colorDialogBtn)
+
+        colorLayout = QVBoxLayout()
+        colorLayout.addLayout(favColorLayout)
+        colorLayout.addLayout(colorSpecialLayout)
+
+        # transform
+        scaleMinusBtn = QPushButton('-')
+        scaleMinusBtn.setFixedSize(QSize(16, 16))
+        scaleMinusBtn.clicked.connect(partial(self.scaleShape, False))
+
+        scalePlusBtn = QPushButton('+')
+        scalePlusBtn.setFixedSize(QSize(16, 16))
+        scalePlusBtn.clicked.connect(partial(self.scaleShape, True))
+
+        self.scaleFactor = QDoubleSpinBox()
+        self.scaleFactor.setValue(.1)
+        self.scaleFactor.setSingleStep(.05)
+        self.scaleFactor.setMaximum(.95)
+
+        scaleLayout = QHBoxLayout()
+        scaleLayout.addWidget(QLabel('Scale'))
+        scaleLayout.addWidget(scaleMinusBtn)
+        scaleLayout.addWidget(self.scaleFactor)
+        scaleLayout.addWidget(scalePlusBtn)
+
+        # menu
+        printShapeAct = QAction('Print Shape\'s Points', self)
+        printShapeAct.triggered.connect(self.printShapePoints)
+
+        editMenu = QMenu('Edit')
+        editMenu.addAction(printShapeAct)
+
+        m = QMenuBar()
+        m.addMenu(editMenu)
+
+        # main layout
+        mainLayout = QVBoxLayout(self)
+        mainLayout.setAlignment(Qt.AlignTop)
+        mainLayout.addWidget(QLabel('<b>Replace Shape</b>'))
+        mainLayout.addWidget(self.createSeparator())
+        mainLayout.addLayout(shapeLayout)
+        mainLayout.addSpacing(30)
+        mainLayout.addWidget(QLabel('<b>Copy/Paste Shape</b>'))
+        mainLayout.addWidget(self.createSeparator())
+        mainLayout.addLayout(copyPasteLayout)
+        mainLayout.addSpacing(30)
+        mainLayout.addWidget(QLabel('<b>Color Override</b>'))
+        mainLayout.addWidget(self.createSeparator())
+        mainLayout.addLayout(colorLayout)
+        mainLayout.addSpacing(30)
+        mainLayout.addWidget(QLabel('<b>Transform Shape</b>'))
+        mainLayout.addWidget(self.createSeparator())
+        mainLayout.addLayout(scaleLayout)
+        mainLayout.setMenuBar(m)
+
+    def createSeparator(self):
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        return separator
+
+    def printShapePoints(self):
+        for dag in cmds.ls(sl=True, type='transform'):
+            for s in cmds.listRelatives(dag, shapes=True, type='nurbsCurve'):
+                print(getCurvePoints(s))
+
+    def openColorDialog(self):
+        colorDialog = QColorDialog(self)
+        colorDialog.colorSelected.connect(setColorOnSelected)
+        colorDialog.show()
+
+    def replaceShape(self):
+        data = self.shapeCombo.currentData()
+        data['axes'] = self.axeShapeCombo.currentText()
+        data['scale'] = self.shapeScale.value()
+        setShapeOnSelected(**data)
+
+    def scaleShape(self, scaleUp=True):
+        off = self.scaleFactor.value()
+        factor = 1 + off if scaleUp else 1 - off
+        scaleShapesOnSelected(factor)
+
+    def copyShapes(self):
+        selection = cmds.ls(sl=True, type='transform')
+        if not selection:
+            return
+        shapes = cmds.listRelatives(selection[-1], shapes=True, type='nurbsCurve')
+        self.copiedShapeData = [getShapeData(s) for s in shapes]
+        print(self.copiedShapeData)
+        self.pasteBtn.setEnabled(True)

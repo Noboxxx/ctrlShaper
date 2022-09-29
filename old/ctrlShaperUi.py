@@ -2,7 +2,7 @@ from PySide2 import QtWidgets, QtCore, QtGui
 import webbrowser
 from functools import partial
 from maya import cmds
-import __init__
+import ctrlShaper
 import rigUtils
 from maya import OpenMayaUI
 import shiboken2
@@ -89,18 +89,18 @@ class CtrlShaperUi(QtWidgets.QDialog):
 
         location, file_name = self.decompose_file_path(path)
         ctrls = self.get_selected_ctrls() or self.get_all_ctrls()
-        __init__.NurbsCurvesFile.create(transforms=ctrls, location=location, file_name=file_name, force=True)
+        ctrlShaper.NurbsCurvesFile.create(transforms=ctrls, location=location, file_name=file_name, force=True)
 
     def import_(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, caption='Import File')
 
-        if not __init__.NurbsCurvesFile.is_one(path):
+        if not ctrlShaper.NurbsCurvesFile.is_one(path):
             cmds.warning('No valid path selected. Skip...')
             return
 
         ctrls_filter = self.get_selected_ctrls() or None
         scale = self.scale_ctrls_dsb.value()
-        __init__.NurbsCurvesFile(path).load(nodes_filter=ctrls_filter, scale=scale)
+        ctrlShaper.NurbsCurvesFile(path).load(nodes_filter=ctrls_filter, scale=scale)
 
     @classmethod
     def decompose_file_path(cls, path):
