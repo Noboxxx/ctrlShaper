@@ -60,10 +60,7 @@ def scaleShapes(ctrl, factor):
 @chunk
 def setOverrideColorOnSelected(color):
     selection = cmds.ls(sl=True, long=True, type='transform')
-    for dag in selection:
-        shapes = cmds.listRelatives(dag, fullPath=True, type='nurbsCurve')
-        [setOverrideColor(s, color) for s in shapes]
-
+    [setOverrideColor(dag, color) for dag in selection]
 
 ###
 
@@ -100,21 +97,27 @@ def createNurbsCurve(parent, points=tuple(), degree=1, periodic=False, color=Non
     cmds.delete(curve)
     ctrlShortName = parent.split('|')[-1]
     shapes = cmds.listRelatives(parent, shapes=True, type='nurbsCurve')
-    [setOverrideColor(shape, color) for shape in shapes]
     [cmds.rename(s, '{}Shape#'.format(ctrlShortName)) for s in shapes or list()]
+    setOverrideColor(parent, color)
     cmds.select(parent)
 
 
 @chunk
-def clearNurbsCurves(dag):
-    shapes = cmds.listRelatives(dag, shapes=True, type='nurbsCurve')
+def clearNurbsCurves(ctrl):
+    shapes = cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve')
     cmds.delete(shapes) if shapes else None
 
 
 @chunk
-def setShapes(ctrl, data):
+def setShapes(ctrl, data, applyColor=True):
+    oldShapes = cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve')
+    oldColor = getOverrideColor(oldShapes[0]) if oldShapes else None
+
     clearNurbsCurves(ctrl)
-    [createNurbsCurve(ctrl, **d) for d in data]
+    for i, d in enumerate(data):
+        if not applyColor:
+            d['color'] = oldColor
+        createNurbsCurve(ctrl, **d)
 
 
 def getShapes(ctrl):
@@ -144,18 +147,26 @@ def getOverrideColor(dag):
 
 
 @chunk
-def setOverrideColor(dag, color=None):
-    if color is None:
-        cmds.setAttr('{}.overrideEnabled'.format(dag), False)
-        cmds.setAttr('{}.overrideRGBColors'.format(dag), 0)
-        cmds.setAttr('{}.overrideColorRGB'.format(dag), 0, 0, 0)
-        cmds.setAttr('{}.overrideColor'.format(dag), 0)
-        return
+def setOverrideColor(ctrl, color=None):
+    if isinstance(color, QColor):
+        color = [c/255.0 for c in color.getRgb()]
 
-    cmds.setAttr('{}.overrideEnabled'.format(dag), True)
-    isRgb = not isinstance(color, int)
-    cmds.setAttr('{}.overrideRGBColors'.format(dag), isRgb)
-    cmds.setAttr('{}.overrideColorRGB'.format(dag), *color) if isRgb else cmds.setAttr('{}.overrideColor'.format(dag), color)
+    if color is None:
+        enabled = False
+        isRgb = False
+        rgbColor = 0, 0, 0
+        indexColor = 0
+    else:
+        enabled = True
+        isRgb = not isinstance(color, int)
+        rgbColor = color if isRgb else (0, 0, 0)
+        indexColor = 0 if isRgb else color
+
+    for shape in cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve') or list():
+        cmds.setAttr('{}.overrideEnabled'.format(shape), enabled)
+        cmds.setAttr('{}.overrideRGBColors'.format(shape), isRgb)
+        cmds.setAttr('{}.overrideColorRGB'.format(shape), *rgbColor)
+        cmds.setAttr('{}.overrideColor'.format(shape), indexColor)
 
 
 ###
@@ -180,7 +191,7 @@ class ColorButton(QPushButton):
     def __init__(self, color):
         super(ColorButton, self).__init__()
 
-        self.color = color
+        self.color = [c/255.0 for c in color]
         self.clicked.connect(partial(setOverrideColorOnSelected, self.color))
 
         if color:
@@ -234,11 +245,11 @@ class CtrlShaper(QDialog):
         # copy paste
         self.copiedShapeData = None
 
-        copyColor = QCheckBox()
-        copyColor.setChecked(True)
+        self.applyColor = QCheckBox()
+        self.applyColor.setChecked(True)
 
-        copyShape = QCheckBox()
-        copyShape.setChecked(True)
+        self.applyShape = QCheckBox()
+        self.applyShape.setChecked(True)
 
         copyBtn = QPushButton('Copy')
         copyBtn.clicked.connect(self.copyShapes)
@@ -249,9 +260,9 @@ class CtrlShaper(QDialog):
 
         copyPasteLayout = QGridLayout()
         copyPasteLayout.addWidget(QLabel('Apply Color'), 0, 0)
-        copyPasteLayout.addWidget(copyColor, 0, 1)
+        copyPasteLayout.addWidget(self.applyColor, 0, 1)
         copyPasteLayout.addWidget(QLabel('Apply Shape'), 1, 0)
-        copyPasteLayout.addWidget(copyShape, 1, 1)
+        copyPasteLayout.addWidget(self.applyShape, 1, 1)
         copyPasteLayout.addWidget(copyBtn, 2, 0)
         copyPasteLayout.addWidget(self.pasteBtn, 2, 1)
 
@@ -301,11 +312,14 @@ class CtrlShaper(QDialog):
         self.scaleFactor.setSingleStep(.05)
         self.scaleFactor.setMaximum(.95)
 
-        scaleLayout = QHBoxLayout()
-        scaleLayout.addWidget(QLabel('Scale'))
-        scaleLayout.addWidget(scaleMinusBtn)
-        scaleLayout.addWidget(self.scaleFactor)
-        scaleLayout.addWidget(scalePlusBtn)
+        scaleValueLayout = QHBoxLayout()
+        scaleValueLayout.addWidget(scaleMinusBtn)
+        scaleValueLayout.addWidget(self.scaleFactor)
+        scaleValueLayout.addWidget(scalePlusBtn)
+
+        scaleLayout = QGridLayout()
+        scaleLayout.addWidget(QLabel('Scale'), 0, 0)
+        scaleLayout.addLayout(scaleValueLayout, 0, 1)
 
         # menu
         printShapeAct = QAction('Print Shape\'s Points', self)
@@ -320,18 +334,22 @@ class CtrlShaper(QDialog):
         # main layout
         mainLayout = QVBoxLayout(self)
         mainLayout.setAlignment(Qt.AlignTop)
-        mainLayout.addWidget(QLabel('<b>Replace Shape</b>'))
-        mainLayout.addWidget(self.createSeparator())
-        mainLayout.addLayout(shapeLayout)
-        mainLayout.addSpacing(30)
-        mainLayout.addWidget(QLabel('<b>Copy/Paste Shape</b>'))
-        mainLayout.addWidget(self.createSeparator())
-        mainLayout.addLayout(copyPasteLayout)
-        mainLayout.addSpacing(30)
+
         mainLayout.addWidget(QLabel('<b>Color Override</b>'))
         mainLayout.addWidget(self.createSeparator())
         mainLayout.addLayout(colorLayout)
         mainLayout.addSpacing(30)
+
+        mainLayout.addWidget(QLabel('<b>Replace Shape</b>'))
+        mainLayout.addWidget(self.createSeparator())
+        mainLayout.addLayout(shapeLayout)
+        mainLayout.addSpacing(30)
+
+        mainLayout.addWidget(QLabel('<b>Copy/Paste Shape</b>'))
+        mainLayout.addWidget(self.createSeparator())
+        mainLayout.addLayout(copyPasteLayout)
+        mainLayout.addSpacing(30)
+
         mainLayout.addWidget(QLabel('<b>Transform Shape</b>'))
         mainLayout.addWidget(self.createSeparator())
         mainLayout.addLayout(scaleLayout)
@@ -393,4 +411,13 @@ class CtrlShaper(QDialog):
             cmds.warning('Nothing to paste.')
             return
 
-        [setShapes(dag, self.copiedShapeData) for dag in selection]
+        applyColor = self.applyColor.isChecked()
+        applyShape = self.applyShape.isChecked()
+
+        if not applyColor and not applyShape:
+            cmds.warning('Color and Shape are disabled.')
+
+        if applyShape:
+            [setShapes(dag, self.copiedShapeData, applyColor=applyColor) for dag in selection]
+        else:
+            setOverrideColorOnSelected(self.copiedShapeData[0]['color'])
