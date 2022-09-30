@@ -3,7 +3,7 @@ from collections import namedtuple
 from PySide2.QtCore import Qt, QSize
 from PySide2.QtGui import QIcon, QPixmap, QColor
 from PySide2.QtWidgets import QMainWindow, QHBoxLayout, QVBoxLayout, QPushButton, QGridLayout, QColorDialog, \
-    QComboBox, QLabel, QDoubleSpinBox, QDialog, QMenu, QMenuBar, QAction, QCheckBox, QFrame, qApp
+    QComboBox, QLabel, QDoubleSpinBox, QDialog, QMenu, QMenuBar, QAction, QCheckBox, QFrame, qApp, QLineEdit
 from maya import OpenMayaUI, cmds
 import shiboken2
 from functools import partial
@@ -77,20 +77,22 @@ def getNurbsCurveData(shape):
 
 
 @chunk
-def createNurbsCurve(parent, points=tuple(), degree=1, periodic=False, color=None, scale=1.0, axes=None):
+def createNurbsCurve(parent, points=tuple(), degree=1, periodic=False, color=None, scale=1.0, axes=''):
     points = [[v * scale for v in p] for p in points] if scale != 1 else points
 
+    # normal
     if axes == 'x':
         points = [(y, z, x) for x, y, z in points]
     elif axes == 'y':
         points = [(x, y, z) for x, y, z in points]
     elif axes == 'z':
         points = [(z, x, y) for x, y, z in points]
-    elif axes is None:
+    elif not axes:
         pass
     else:
         raise ValueError('\'x\', \'y\' or \'z\' excepted as axes. Got {}'.format(repr(axes)))
 
+    # curve
     curve = cmds.curve(point=points, degree=degree)
     cmds.closeCurve(curve, ch=False, preserveShape=False, replaceOriginal=True) if periodic else None
     cmds.parent(cmds.listRelatives(curve, shapes=True), parent, r=True, s=True)
@@ -120,7 +122,7 @@ def setShapes(ctrl, data, applyColor=True):
         createNurbsCurve(ctrl, **d)
 
 
-def getShapes(ctrl):
+def getShapesData(ctrl):
     data = list()
 
     for shape in cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve'):
@@ -321,6 +323,29 @@ class CtrlShaper(QDialog):
         scaleLayout.addWidget(QLabel('Scale'), 0, 0)
         scaleLayout.addLayout(scaleValueLayout, 0, 1)
 
+        # mirror
+        self.mirrorAxes = QComboBox()
+        [self.mirrorAxes.addItem(axes) for axes in ('x', 'y', 'z', '')]
+
+        self.searchFor = QLineEdit('_L')
+
+        self.replaceBy = QLineEdit('_R')
+
+        mirrorReplaceLayout = QGridLayout()
+        mirrorReplaceLayout.addWidget(QLabel('Search for'), 1, 0)
+        mirrorReplaceLayout.addWidget(self.searchFor, 1, 1)
+        mirrorReplaceLayout.addWidget(QLabel('Replace by'), 2, 0)
+        mirrorReplaceLayout.addWidget(self.replaceBy, 2, 1)
+        mirrorReplaceLayout.addWidget(QLabel('Mirror Axes'), 0, 0)
+        mirrorReplaceLayout.addWidget(self.mirrorAxes, 0, 1)
+
+        mirrorBtn = QPushButton('Mirror')
+        mirrorBtn.clicked.connect(self.mirrorShapes)
+
+        mirrorLayout = QVBoxLayout()
+        mirrorLayout.addLayout(mirrorReplaceLayout)
+        mirrorLayout.addWidget(mirrorBtn)
+
         # menu
         printShapeAct = QAction('Print Shape\'s Points', self)
         printShapeAct.triggered.connect(self.printShapePoints)
@@ -334,6 +359,7 @@ class CtrlShaper(QDialog):
         # main layout
         mainLayout = QVBoxLayout(self)
         mainLayout.setAlignment(Qt.AlignTop)
+        mainLayout.setMenuBar(m)
 
         mainLayout.addWidget(QLabel('<b>Color Override</b>'))
         mainLayout.addWidget(self.createSeparator())
@@ -353,7 +379,11 @@ class CtrlShaper(QDialog):
         mainLayout.addWidget(QLabel('<b>Transform Shape</b>'))
         mainLayout.addWidget(self.createSeparator())
         mainLayout.addLayout(scaleLayout)
-        mainLayout.setMenuBar(m)
+        mainLayout.addSpacing(30)
+
+        mainLayout.addWidget(QLabel('<b>Mirror Shape</b>'))
+        mainLayout.addWidget(self.createSeparator())
+        mainLayout.addLayout(mirrorLayout)
 
     def createSeparator(self):
         separator = QFrame()
@@ -371,6 +401,7 @@ class CtrlShaper(QDialog):
         colorDialog.colorSelected.connect(setOverrideColorOnSelected)
         colorDialog.show()
 
+    @chunk
     def replaceShape(self):
         selection = cmds.ls(sl=True, long=True, type='transform')
 
@@ -396,7 +427,7 @@ class CtrlShaper(QDialog):
         if not selection:
             cmds.warning('Nothing valid is selected.')
             return
-        self.copiedShapeData = getShapes(selection[-1])
+        self.copiedShapeData = getShapesData(selection[-1])
         self.pasteBtn.setEnabled(True)
 
     @chunk
@@ -421,3 +452,16 @@ class CtrlShaper(QDialog):
             [setShapes(dag, self.copiedShapeData, applyColor=applyColor) for dag in selection]
         else:
             setOverrideColorOnSelected(self.copiedShapeData[0]['color'])
+
+    @chunk
+    def mirrorShapes(self):
+        selection = cmds.ls(sl=True, type='transform')
+        for dag in selection:
+            mirrorName = dag.replace(self.searchFor.text(), self.replaceBy.text())
+            if not cmds.objExists(mirrorName):
+                continue
+
+            data = getShapesData(dag)
+            setShapes(mirrorName, data, applyColor=False)
+        cmds.select(selection)
+
