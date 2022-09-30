@@ -1,3 +1,5 @@
+from collections import namedtuple
+
 from PySide2.QtCore import Qt, QSize
 from PySide2.QtGui import QIcon, QPixmap, QColor
 from PySide2.QtWidgets import QMainWindow, QHBoxLayout, QVBoxLayout, QPushButton, QGridLayout, QColorDialog, \
@@ -10,7 +12,6 @@ import os
 
 # 1.0
 # TODO: Save / import
-# TODO: copy / paste
 # TODO: mirror and mirror batch
 # TODO: comment code / doc
 # 2.0
@@ -49,120 +50,113 @@ def chunk(func):
 ###
 
 
-def getCurveData(shape):
-    spans = cmds.getAttr('{}.spans'.format(shape))
-    cvCount = spans if cmds.getAttr('{}.form'.format(shape)) == 2 else cmds.getAttr('{}.degree'.format(shape)) + spans
-    degree = cmds.getAttr('{}.degree'.format(shape))
-    periodic = cmds.getAttr('{}.form'.format(shape)) == 2
-    points = [cmds.xform('{}.cv[{}]'.format(shape, i), q=True, translation=True) for i in range(cvCount)]
-    return dict(
-        degree=degree,
-        periodic=periodic,
-        points=points
-    )
-
-
 @chunk
 def scaleShapes(ctrl, factor):
-    for s in cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve') or list():
-        scaledPoints = [[v * factor for v in p] for p in getCurveData(s)]
+    for s in cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve', fullPath=True) or list():
+        scaledPoints = [[v * factor for v in p] for p in getNurbsCurveData(s)[0]]
         [cmds.xform('{}.cv[{}]'.format(s, i), translation=p) for i, p in enumerate(scaledPoints)]
 
 
 @chunk
-def scaleShapesOnSelected(factor):
-    [scaleShapes(c, factor) for c in cmds.ls(sl=True, type='transform', long=True)]
+def setOverrideColorOnSelected(color):
+    selection = cmds.ls(sl=True, long=True, type='transform')
+    for dag in selection:
+        shapes = cmds.listRelatives(dag, fullPath=True, type='nurbsCurve')
+        [setOverrideColor(s, color) for s in shapes]
+
+
+###
+
+
+def getNurbsCurveData(shape):
+    spans = cmds.getAttr('{}.spans'.format(shape))
+    cvCount = spans if cmds.getAttr('{}.form'.format(shape)) == 2 else cmds.getAttr('{}.degree'.format(shape)) + spans
+
+    degree = cmds.getAttr('{}.degree'.format(shape))
+    periodic = cmds.getAttr('{}.form'.format(shape)) == 2
+    points = [cmds.xform('{}.cv[{}]'.format(shape, i), q=True, translation=True) for i in range(cvCount)]
+
+    return points, degree, periodic
 
 
 @chunk
-def setShape(ctrl, points=tuple(), degree=1, periodic=False, axes='x', scale=1.0):
-    points = [[v * scale for v in p] for p in points]
+def createNurbsCurve(parent, points=tuple(), degree=1, periodic=False, color=None, scale=1.0, axes=None):
+    points = [[v * scale for v in p] for p in points] if scale != 1 else points
+
     if axes == 'x':
         points = [(y, z, x) for x, y, z in points]
     elif axes == 'y':
         points = [(x, y, z) for x, y, z in points]
     elif axes == 'z':
         points = [(z, x, y) for x, y, z in points]
+    elif axes is None:
+        pass
     else:
         raise ValueError('\'x\', \'y\' or \'z\' excepted as axes. Got {}'.format(repr(axes)))
+
     curve = cmds.curve(point=points, degree=degree)
     cmds.closeCurve(curve, ch=False, preserveShape=False, replaceOriginal=True) if periodic else None
-    sh = cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve')
-    cmds.delete(sh) if sh else None
-    cmds.parent(cmds.listRelatives(curve, shapes=True), ctrl, r=True, s=True)
+    cmds.parent(cmds.listRelatives(curve, shapes=True), parent, r=True, s=True)
     cmds.delete(curve)
-    ctrlShortName = ctrl.split('|')[-1]
-    [cmds.rename(s, '{}Shape#'.format(ctrlShortName)) for s in cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve') or list()]
-    cmds.select(ctrl)
+    ctrlShortName = parent.split('|')[-1]
+    shapes = cmds.listRelatives(parent, shapes=True, type='nurbsCurve')
+    [setOverrideColor(shape, color) for shape in shapes]
+    [cmds.rename(s, '{}Shape#'.format(ctrlShortName)) for s in shapes or list()]
+    cmds.select(parent)
 
 
 @chunk
-def setOverrideColor(dag, color):
-    cmds.setAttr('{}.overrideEnabled'.format(dag), True)
-    cmds.setAttr('{}.overrideRGBColors'.format(dag), True)
-    cmds.setAttr('{}.overrideColorRGB'.format(dag), *color)
+def clearNurbsCurves(dag):
+    shapes = cmds.listRelatives(dag, shapes=True, type='nurbsCurve')
+    cmds.delete(shapes) if shapes else None
 
 
 @chunk
-def resetOverrideColor(dag):
-    cmds.setAttr('{}.overrideRGBColors'.format(dag), False)
-    cmds.setAttr('{}.overrideColorRGB'.format(dag), 0, 0, 0)
-    cmds.setAttr('{}.overrideColor'.format(dag), 0)
+def setShapes(ctrl, data):
+    clearNurbsCurves(ctrl)
+    [createNurbsCurve(ctrl, **d) for d in data]
+
+
+def getShapes(ctrl):
+    data = list()
+
+    for shape in cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve'):
+        shapeData = dict()
+        shapeData['points'], shapeData['degree'], shapeData['periodic'] = getNurbsCurveData(shape)
+        shapeData['color'] = getOverrideColor(shape)
+        data.append(shapeData)
+
+    return data
 
 
 def getOverrideColor(dag):
     enabled = cmds.getAttr('{}.overrideEnabled'.format(dag))
+
+    if not enabled:
+        return None
+
     mode = cmds.getAttr('{}.overrideRGBColors'.format(dag))
-    rgbColor = cmds.getAttr('{}.overrideColorRGB'.format(dag))
-    indexColor = cmds.getAttr('{}.overrideColor'.format(dag))
-    return dict(
-        enabled=enabled,
-        mode=mode,
-        rgbColor=rgbColor,
-        indexColor=indexColor
-    )
+
+    if mode == 1:
+        return cmds.getAttr('{}.overrideColorRGB'.format(dag))[0]
+
+    return cmds.getAttr('{}.overrideColor'.format(dag))
 
 
 @chunk
-def setShapeOnSelected(points=tuple(), degree=1, periodic=False, axes='x', scale=1.0):
-    ctrls = cmds.ls(sl=True, long=True, type='transform')
-    [setShape(ctrl, points=points, degree=degree, periodic=periodic, axes=axes, scale=scale) for ctrl in ctrls]
-    cmds.select(ctrls)
-
-
-@chunk
-def setColor(dag, color=None):
-    if not cmds.objExists('{}.overrideEnabled'.format(dag)):
-        cmds.warning('Unable to set override color for \'{}\''.format(dag))
+def setOverrideColor(dag, color=None):
+    if color is None:
+        cmds.setAttr('{}.overrideEnabled'.format(dag), False)
+        cmds.setAttr('{}.overrideRGBColors'.format(dag), 0)
+        cmds.setAttr('{}.overrideColorRGB'.format(dag), 0, 0, 0)
+        cmds.setAttr('{}.overrideColor'.format(dag), 0)
         return
 
-    resetOverrideColor(dag)
-    [resetOverrideColor(s) for s in cmds.listRelatives(dag, shapes=True, fullPath=True) or list()]
+    cmds.setAttr('{}.overrideEnabled'.format(dag), True)
+    isRgb = not isinstance(color, int)
+    cmds.setAttr('{}.overrideRGBColors'.format(dag), isRgb)
+    cmds.setAttr('{}.overrideColorRGB'.format(dag), *color) if isRgb else cmds.setAttr('{}.overrideColor'.format(dag), color)
 
-    if not color:
-        return
-
-    color = color.getRgb()[0:3] if isinstance(color, QColor) else color
-    color = [c/255.0 for c in color]
-
-    shapes = cmds.listRelatives(dag, shapes=True, fullPath=True) or list()
-    [setOverrideColor(s, color) for s in shapes] if shapes else setOverrideColor(dag, color)
-
-
-@chunk
-def setColorOnSelected(color):
-    [setColor(c, color) for c in cmds.ls(sl=True, long=True)]
-
-
-def getShapeData(shape):
-    curveData = getCurveData(shape)
-    colorData = getOverrideColor(shape)
-    curveData.update(colorData)
-
-    return dict(
-        curve=curveData,
-        color=colorData
-    )
 
 ###
 
@@ -187,7 +181,7 @@ class ColorButton(QPushButton):
         super(ColorButton, self).__init__()
 
         self.color = color
-        self.clicked.connect(partial(setColorOnSelected, self.color))
+        self.clicked.connect(partial(setOverrideColorOnSelected, self.color))
 
         if color:
             pixmap = QPixmap(20 * dpiF, 20 * dpiF)
@@ -283,7 +277,7 @@ class CtrlShaper(QDialog):
 
         resetColorBtn = QPushButton('Default')
         resetColorBtn.setIcon(QIcon(':error.png'))
-        resetColorBtn.clicked.connect(partial(setColorOnSelected, None))
+        resetColorBtn.clicked.connect(partial(setOverrideColorOnSelected, None))
 
         colorSpecialLayout = QHBoxLayout()
         colorSpecialLayout.addWidget(resetColorBtn)
@@ -352,34 +346,51 @@ class CtrlShaper(QDialog):
     def printShapePoints(self):
         for dag in cmds.ls(sl=True, type='transform'):
             for s in cmds.listRelatives(dag, shapes=True, type='nurbsCurve', fullPath=True):
-                print(getCurveData(s))
+                print(getNurbsCurveData(s))
 
     def openColorDialog(self):
         colorDialog = QColorDialog(self)
-        colorDialog.colorSelected.connect(setColorOnSelected)
+        colorDialog.colorSelected.connect(setOverrideColorOnSelected)
         colorDialog.show()
 
     def replaceShape(self):
+        selection = cmds.ls(sl=True, long=True, type='transform')
+
+        if not selection:
+            cmds.warning('Nothing valid is selected.')
+            return
+
         data = self.shapeCombo.currentData()
         data['axes'] = self.axeShapeCombo.currentText()
         data['scale'] = self.shapeScale.value()
-        setShapeOnSelected(**data)
 
+        [setShapes(dag, [data]) for dag in selection]
+        cmds.select(selection)
+
+    @chunk
     def scaleShape(self, scaleUp=True):
         off = self.scaleFactor.value()
         factor = 1 + off if scaleUp else 1 - off
-        scaleShapesOnSelected(factor)
+        [scaleShapes(c, factor) for c in cmds.ls(sl=True, type='transform', long=True)]
 
     def copyShapes(self):
         selection = cmds.ls(sl=True, long=True, type='transform')
         if not selection:
+            cmds.warning('Nothing valid is selected.')
             return
-        shapes = cmds.listRelatives(selection[-1], shapes=True, type='nurbsCurve', fullPath=True)
-        self.copiedShapeData = [getShapeData(s) for s in shapes]
-        print(self.copiedShapeData)
+        self.copiedShapeData = getShapes(selection[-1])
         self.pasteBtn.setEnabled(True)
 
+    @chunk
     def pasteShapes(self):
         selection = cmds.ls(sl=True, long=True, type='transform')
-        for dag in selection:
-            setShape(dag, **self.copiedShapeData[0]['curve'])
+
+        if not selection:
+            cmds.warning('Nothing selected.')
+            return
+
+        if not self.copiedShapeData:
+            cmds.warning('Nothing to paste.')
+            return
+
+        [setShapes(dag, self.copiedShapeData) for dag in selection]
