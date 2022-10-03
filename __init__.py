@@ -190,6 +190,10 @@ def getMayaMainWindow():
 def exportShapes(dags, filePath):
     dags = cmds.ls(dags, type='transform')
 
+    if not dags:
+        cmds.warning('Nothing valid selected. Skip...')
+        return
+
     data = {x: getShapesData(x) for x in dags}
 
     with open(filePath, 'w') as f:
@@ -197,7 +201,7 @@ def exportShapes(dags, filePath):
 
 
 @chunk
-def importShapes(filePath, selectionFilter=None):
+def importShapes(filePath, selectionFilter=tuple()):
     with open(filePath, 'r') as f:
         data = json.load(f)
 
@@ -539,11 +543,16 @@ class CtrlShaper(QDialog):
 
     @chunk
     def importShapes(self):
-        print('importShapes')
-        importShapes(r'C:\Users\plaurent\Desktop\scripts\shapes.json', selectionFilter=cmds.ls(sl=True))
+        path, _ = QFileDialog.getOpenFileName(self, caption='Import File', filter='Controller Shapes (*.ctrl)')
+
+        if not path:
+            cmds.warning('No valid path selected. Skip...')
+            return
+
+        importShapes(path, selectionFilter=cmds.ls(sl=True))
 
     def exportShapes(self):
-        path, _ = QFileDialog.getSaveFileName(self, caption='Export Shapes', filter='(.ctrl) Controller Shapes')
+        path, _ = QFileDialog.getSaveFileName(self, caption='Export Shapes', filter='Controller Shapes (*.ctrl)')
 
         if not path:
             cmds.warning('No valid path selected. Skip...')
