@@ -201,7 +201,7 @@ def exportShapes(dags, filePath):
 
 
 @chunk
-def importShapes(filePath, selectionFilter=tuple()):
+def importShapes(filePath, selectionFilter=tuple(), shapes=True, color=True):
     with open(filePath, 'r') as f:
         data = json.load(f)
 
@@ -213,7 +213,8 @@ def importShapes(filePath, selectionFilter=tuple()):
         if not cmds.objExists(n):
             cmds.warning('Unable to find {}. Skip...'.format(repr(n)))
             continue
-        setShapes(n, d)
+
+        setShapes(n, d, applyColor=color) if shapes else setOverrideColor(n, d['color'])
 
 
 class ColorButton(QPushButton):
@@ -494,6 +495,7 @@ class CtrlShaper(QDialog):
 
         if not applyColor and not applyShape:
             cmds.warning('Color and Shape are disabled.')
+            return
 
         if applyShape:
             [setShapes(dag, self.copiedShapeData, applyColor=applyColor) for dag in selection]
@@ -543,13 +545,20 @@ class CtrlShaper(QDialog):
 
     @chunk
     def importShapes(self):
+        applyColor = self.applyColor.isChecked()
+        applyShape = self.applyShape.isChecked()
+
+        if not applyColor and not applyShape:
+            cmds.warning('Color and Shape are disabled.')
+            return
+
         path, _ = QFileDialog.getOpenFileName(self, caption='Import File', filter='Controller Shapes (*.ctrl)')
 
         if not path:
             cmds.warning('No valid path selected. Skip...')
             return
 
-        importShapes(path, selectionFilter=cmds.ls(sl=True))
+        importShapes(path, selectionFilter=cmds.ls(sl=True), shapes=applyShape, color=applyColor)
 
     def exportShapes(self):
         path, _ = QFileDialog.getSaveFileName(self, caption='Export Shapes', filter='Controller Shapes (*.ctrl)')
