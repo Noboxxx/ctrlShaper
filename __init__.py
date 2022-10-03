@@ -56,13 +56,13 @@ def scaleShapes(ctrl, factor):
 
 @chunk
 def setOverrideColors(color, dags=tuple()):
-    dags = cmds.ls(sl=True, long=True, dag=True) if not dags else dags
-
+    dags = cmds.ls(sl=True, long=True, type=('nurbsCurve', 'transform')) if not dags else dags
+    print 'dags', dags
     for dag in dags:
-        if cmds.objectType(dag, isAType='transform'):
-            setOverrideColor(dag, color)
-        else:
-            [setOverrideColor(s, color) for s in cmds.listRelatives(dag, shapes=True, type='nurbsCurve') or list()]
+        curves = cmds.listRelatives(dag, shapes=True, type='nurbsCurve', fullPath=True) or list()
+        print 'curves', dag, curves
+        [setOverrideColor(c, color) for c in curves] if curves else setOverrideColor(dag, color)
+
 
 ###
 
@@ -108,7 +108,7 @@ def createNurbsCurve(parent, points=tuple(), degree=1, periodic=False, color=Non
 
 @chunk
 def clearNurbsCurves(ctrl):
-    shapes = cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve')
+    shapes = cmds.listRelatives(ctrl, shapes=True, type='nurbsCurve', fullPath=True)
     cmds.delete(shapes) if shapes else None
 
 
