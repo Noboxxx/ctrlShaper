@@ -1,9 +1,8 @@
-from collections import namedtuple
-
 from PySide2.QtCore import Qt, QSize
 from PySide2.QtGui import QIcon, QPixmap, QColor
 from PySide2.QtWidgets import QMainWindow, QHBoxLayout, QVBoxLayout, QPushButton, QGridLayout, QColorDialog, \
-    QComboBox, QLabel, QDoubleSpinBox, QDialog, QMenu, QMenuBar, QAction, QCheckBox, QFrame, qApp, QLineEdit
+    QComboBox, QLabel, QDoubleSpinBox, QDialog, QMenu, QMenuBar, QAction, QCheckBox, QFrame, qApp, QLineEdit, \
+    QFileDialog
 from maya import OpenMayaUI, cmds
 import shiboken2
 from functools import partial
@@ -12,19 +11,19 @@ import os
 
 # 1.0
 # TODO: Save / import
-# TODO: mirror and mirror batch
 # TODO: comment code / doc
+#
+
 # 2.0
 # TODO: manage shape list
 # TODO: manage color palette
 # TODO: replace shape with auto-scale
 # TODO: dockable window
+#
+
+from maya.api.OpenMaya import MMatrix
 
 dpiF = qApp.desktop().logicalDpiX() / 96.0
-
-shapesDir = os.path.dirname(os.path.abspath(__file__))
-with open('{}/shapes.json'.format(shapesDir), 'r') as f:
-    shapesData = json.load(f)
 
 
 class Chunk(object):
@@ -65,13 +64,13 @@ def setOverrideColorOnSelected(color):
 ###
 
 
-def getNurbsCurveData(shape):
+def getNurbsCurveData(shape, objectSpace=True):
     spans = cmds.getAttr('{}.spans'.format(shape))
     cvCount = spans if cmds.getAttr('{}.form'.format(shape)) == 2 else cmds.getAttr('{}.degree'.format(shape)) + spans
 
     degree = cmds.getAttr('{}.degree'.format(shape))
     periodic = cmds.getAttr('{}.form'.format(shape)) == 2
-    points = [cmds.xform('{}.cv[{}]'.format(shape, i), q=True, translation=True) for i in range(cvCount)]
+    points = [cmds.xform('{}.cv[{}]'.format(shape, i), q=True, translation=True, objectSpace=objectSpace, worldSpace=not objectSpace) for i in range(cvCount)]
 
     return points, degree, periodic
 
@@ -122,12 +121,12 @@ def setShapes(ctrl, data, applyColor=True):
         createNurbsCurve(ctrl, **d)
 
 
-def getShapesData(ctrl):
+def getShapesData(ctrl, objectSpace=True):
     data = list()
 
     for shape in cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve'):
         shapeData = dict()
-        shapeData['points'], shapeData['degree'], shapeData['periodic'] = getNurbsCurveData(shape)
+        shapeData['points'], shapeData['degree'], shapeData['periodic'] = getNurbsCurveData(shape, objectSpace=objectSpace)
         shapeData['color'] = getOverrideColor(shape)
         data.append(shapeData)
 
@@ -188,6 +187,31 @@ def getMayaMainWindow():
     return shiboken2.wrapInstance(long(pointer), QMainWindow)
 
 
+def exportShapes(dags, filePath):
+    dags = cmds.ls(dags, type='transform')
+
+    data = {x: getShapesData(x) for x in dags}
+
+    with open(filePath, 'w') as f:
+        json.dump(data, f)
+
+
+@chunk
+def importShapes(filePath, selectionFilter=None):
+    with open(filePath, 'r') as f:
+        data = json.load(f)
+
+    for n, d in data.items():
+        if selectionFilter:
+            if n not in selectionFilter:
+                continue
+
+        if not cmds.objExists(n):
+            cmds.warning('Unable to find {}. Skip...'.format(repr(n)))
+            continue
+        setShapes(n, d)
+
+
 class ColorButton(QPushButton):
 
     def __init__(self, color):
@@ -214,7 +238,12 @@ class CtrlShaper(QDialog):
         super(CtrlShaper, self).__init__(parent=parent)
         killOtherInstances(self)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        self.setWindowTitle('Ctrl Shaper')
+        self.setWindowTitle('Controller Shaper 1.0')
+
+        # shapes
+        shapesDir = os.path.dirname(os.path.abspath(__file__))
+        with open('{}/shapes.json'.format(shapesDir), 'r') as f:
+            shapesData = json.load(f)
 
         # shape
         self.axeShapeCombo = QComboBox()
@@ -260,6 +289,14 @@ class CtrlShaper(QDialog):
         self.pasteBtn.setEnabled(False)
         self.pasteBtn.clicked.connect(self.pasteShapes)
 
+        export = QPushButton('Export')
+        export.setIcon(QIcon(':fileSave.png'))
+        export.clicked.connect(self.exportShapes)
+
+        import_ = QPushButton('Import')
+        import_.setIcon(QIcon(':fileOpen.png'))
+        import_.clicked.connect(self.importShapes)
+
         copyPasteLayout = QGridLayout()
         copyPasteLayout.addWidget(QLabel('Apply Color'), 0, 0)
         copyPasteLayout.addWidget(self.applyColor, 0, 1)
@@ -267,6 +304,8 @@ class CtrlShaper(QDialog):
         copyPasteLayout.addWidget(self.applyShape, 1, 1)
         copyPasteLayout.addWidget(copyBtn, 2, 0)
         copyPasteLayout.addWidget(self.pasteBtn, 2, 1)
+        copyPasteLayout.addWidget(export, 3, 0)
+        copyPasteLayout.addWidget(import_, 3, 1)
 
         # color
         colorDialogBtn = QPushButton('Custom')
@@ -331,13 +370,22 @@ class CtrlShaper(QDialog):
 
         self.replaceBy = QLineEdit('_R')
 
+        self.swap = QPushButton()
+        self.swap.setMaximumSize(QSize(16 * dpiF, 16 * dpiF))
+        self.swap.setIcon(QIcon(':doubleVertArrow.png'))
+        self.swap.clicked.connect(self.swapSearchReplace)
+
+        searchForLayout = QHBoxLayout()
+        searchForLayout.addWidget(self.searchFor)
+        searchForLayout.addWidget(self.swap)
+
         mirrorReplaceLayout = QGridLayout()
-        mirrorReplaceLayout.addWidget(QLabel('Search for'), 1, 0)
-        mirrorReplaceLayout.addWidget(self.searchFor, 1, 1)
-        mirrorReplaceLayout.addWidget(QLabel('Replace by'), 2, 0)
-        mirrorReplaceLayout.addWidget(self.replaceBy, 2, 1)
         mirrorReplaceLayout.addWidget(QLabel('Mirror Axes'), 0, 0)
         mirrorReplaceLayout.addWidget(self.mirrorAxes, 0, 1)
+        mirrorReplaceLayout.addWidget(QLabel('Search for'), 1, 0)
+        mirrorReplaceLayout.addLayout(searchForLayout, 1, 1)
+        mirrorReplaceLayout.addWidget(QLabel('Replace by'), 2, 0)
+        mirrorReplaceLayout.addWidget(self.replaceBy, 2, 1)
 
         mirrorBtn = QPushButton('Mirror')
         mirrorBtn.clicked.connect(self.mirrorShapes)
@@ -362,27 +410,22 @@ class CtrlShaper(QDialog):
         mainLayout.setMenuBar(m)
 
         mainLayout.addWidget(QLabel('<b>Color Override</b>'))
-        mainLayout.addWidget(self.createSeparator())
         mainLayout.addLayout(colorLayout)
-        mainLayout.addSpacing(30)
 
+        mainLayout.addWidget(self.createSeparator())
         mainLayout.addWidget(QLabel('<b>Replace Shape</b>'))
-        mainLayout.addWidget(self.createSeparator())
         mainLayout.addLayout(shapeLayout)
-        mainLayout.addSpacing(30)
 
-        mainLayout.addWidget(QLabel('<b>Copy/Paste Shape</b>'))
         mainLayout.addWidget(self.createSeparator())
+        mainLayout.addWidget(QLabel('<b>Copy/Export Shapes</b>'))
         mainLayout.addLayout(copyPasteLayout)
-        mainLayout.addSpacing(30)
 
+        mainLayout.addWidget(self.createSeparator())
         mainLayout.addWidget(QLabel('<b>Transform Shape</b>'))
-        mainLayout.addWidget(self.createSeparator())
         mainLayout.addLayout(scaleLayout)
-        mainLayout.addSpacing(30)
 
-        mainLayout.addWidget(QLabel('<b>Mirror Shape</b>'))
         mainLayout.addWidget(self.createSeparator())
+        mainLayout.addWidget(QLabel('<b>Mirror Shape</b>'))
         mainLayout.addLayout(mirrorLayout)
 
     def createSeparator(self):
@@ -458,10 +501,52 @@ class CtrlShaper(QDialog):
         selection = cmds.ls(sl=True, type='transform')
         for dag in selection:
             mirrorName = dag.replace(self.searchFor.text(), self.replaceBy.text())
-            if not cmds.objExists(mirrorName):
+            if not cmds.objExists(mirrorName) or mirrorName == dag:
+                cmds.warning('No mirror object found')
                 continue
 
-            data = getShapesData(dag)
+            data = getShapesData(dag, objectSpace=False)
+
+            mirrorAxis = self.mirrorAxes.currentText()
+
+            mirrorMatrix = MMatrix(cmds.xform(mirrorName, q=True, matrix=True, worldSpace=True)).inverse()
+            for d in data:
+                points = list()
+                for x, y, z in d['points']:
+                    if mirrorAxis == 'x':
+                        worldPoint = MMatrix((1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -x, y, z, 1))
+                    elif mirrorAxis == 'y':
+                        worldPoint = MMatrix((1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, -y, z, 1))
+                    elif mirrorAxis == 'z':
+                        worldPoint = MMatrix((1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, -z, 1))
+                    elif mirrorAxis == '':
+                        worldPoint = MMatrix((1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1))
+                    else:
+                        raise ValueError
+                    resultMatrix = worldPoint * mirrorMatrix
+                    points.append((list(resultMatrix)[12:15]))
+                d['points'] = points
+
             setShapes(mirrorName, data, applyColor=False)
         cmds.select(selection)
 
+    def swapSearchReplace(self):
+        searchFor = self.searchFor.text()
+        replaceBy = self.replaceBy.text()
+
+        self.searchFor.setText(replaceBy)
+        self.replaceBy.setText(searchFor)
+
+    @chunk
+    def importShapes(self):
+        print('importShapes')
+        importShapes(r'C:\Users\plaurent\Desktop\scripts\shapes.json', selectionFilter=cmds.ls(sl=True))
+
+    def exportShapes(self):
+        path, _ = QFileDialog.getSaveFileName(self, caption='Export Shapes', filter='(.ctrl) Controller Shapes')
+
+        if not path:
+            cmds.warning('No valid path selected. Skip...')
+            return
+
+        exportShapes(cmds.ls(sl=True), path)
