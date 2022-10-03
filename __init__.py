@@ -55,9 +55,14 @@ def scaleShapes(ctrl, factor):
 
 
 @chunk
-def setOverrideColorOnSelected(color):
-    selection = cmds.ls(sl=True, long=True, type='transform')
-    [setOverrideColor(dag, color) for dag in selection]
+def setOverrideColors(color, dags=tuple()):
+    dags = cmds.ls(sl=True, long=True, dag=True) if not dags else dags
+
+    for dag in dags:
+        if cmds.objectType(dag, isAType='transform'):
+            setOverrideColor(dag, color)
+        else:
+            [setOverrideColor(s, color) for s in cmds.listRelatives(dag, shapes=True, type='nurbsCurve') or list()]
 
 ###
 
@@ -221,7 +226,7 @@ class ColorButton(QPushButton):
         super(ColorButton, self).__init__()
 
         self.color = [c/255.0 for c in color]
-        self.clicked.connect(partial(setOverrideColorOnSelected, self.color))
+        self.clicked.connect(partial(setOverrideColors, self.color))
 
         if color:
             pixmap = QPixmap(20 * dpiF, 20 * dpiF)
@@ -332,7 +337,7 @@ class CtrlShaper(QDialog):
 
         resetColorBtn = QPushButton('Default')
         resetColorBtn.setIcon(QIcon(':error.png'))
-        resetColorBtn.clicked.connect(partial(setOverrideColorOnSelected, None))
+        resetColorBtn.clicked.connect(partial(setOverrideColors, None))
 
         colorSpecialLayout = QHBoxLayout()
         colorSpecialLayout.addWidget(resetColorBtn)
@@ -397,20 +402,9 @@ class CtrlShaper(QDialog):
         mirrorLayout.addLayout(mirrorReplaceLayout)
         mirrorLayout.addWidget(mirrorBtn)
 
-        # menu
-        printShapeAct = QAction('Print Shape\'s Points', self)
-        printShapeAct.triggered.connect(self.printShapePoints)
-
-        editMenu = QMenu('Edit')
-        editMenu.addAction(printShapeAct)
-
-        m = QMenuBar()
-        m.addMenu(editMenu)
-
         # main layout
         mainLayout = QVBoxLayout(self)
         mainLayout.setAlignment(Qt.AlignTop)
-        mainLayout.setMenuBar(m)
 
         mainLayout.addWidget(QLabel('<b>Color Override</b>'))
         mainLayout.addLayout(colorLayout)
@@ -437,14 +431,9 @@ class CtrlShaper(QDialog):
         separator.setFrameShadow(QFrame.Sunken)
         return separator
 
-    def printShapePoints(self):
-        for dag in cmds.ls(sl=True, type='transform'):
-            for s in cmds.listRelatives(dag, shapes=True, type='nurbsCurve', fullPath=True):
-                print(getNurbsCurveData(s))
-
     def openColorDialog(self):
         colorDialog = QColorDialog(self)
-        colorDialog.colorSelected.connect(setOverrideColorOnSelected)
+        colorDialog.colorSelected.connect(setOverrideColors)
         colorDialog.show()
 
     @chunk
@@ -455,11 +444,13 @@ class CtrlShaper(QDialog):
             cmds.warning('Nothing valid is selected.')
             return
 
-        data = self.shapeCombo.currentData()
-        data['axes'] = self.axeShapeCombo.currentText()
-        data['scale'] = self.shapeScale.value()
+        for dag in selection:
+            data = self.shapeCombo.currentData()
+            data['axes'] = self.axeShapeCombo.currentText()
+            data['scale'] = self.shapeScale.value()
 
-        [setShapes(dag, [data]) for dag in selection]
+            setShapes(dag, [data], applyColor=False)
+
         cmds.select(selection)
 
     @chunk
@@ -498,7 +489,7 @@ class CtrlShaper(QDialog):
         if applyShape:
             [setShapes(dag, self.copiedShapeData, applyColor=applyColor) for dag in selection]
         else:
-            setOverrideColorOnSelected(self.copiedShapeData[0]['color'])
+            setOverrideColors(self.copiedShapeData[0]['color'])
 
     @chunk
     def mirrorShapes(self):
@@ -556,7 +547,10 @@ class CtrlShaper(QDialog):
             cmds.warning('No valid path selected. Skip...')
             return
 
-        importShapes(path, selectionFilter=cmds.ls(sl=True), shapes=applyShape, color=applyColor)
+        selection = cmds.ls(sl=True)
+        importShapes(path, selectionFilter=selection, shapes=applyShape, color=applyColor)
+        cmds.select(selection)
+
         print('{} imported.'.format(path))
 
     def exportShapes(self):
@@ -567,4 +561,5 @@ class CtrlShaper(QDialog):
             return
 
         exportShapes(cmds.ls(sl=True), path)
+
         print('{} saved.'.format(path))
