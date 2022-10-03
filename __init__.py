@@ -8,20 +8,18 @@ import shiboken2
 from functools import partial
 import json
 import os
+from maya.api.OpenMaya import MMatrix
 
 # 1.0
-# TODO: Save / import
 # TODO: comment code / doc
-#
+
 
 # 2.0
 # TODO: manage shape list
 # TODO: manage color palette
 # TODO: replace shape with auto-scale
 # TODO: dockable window
-#
 
-from maya.api.OpenMaya import MMatrix
 
 dpiF = qApp.desktop().logicalDpiX() / 96.0
 
@@ -214,7 +212,7 @@ def importShapes(filePath, selectionFilter=tuple(), shapes=True, color=True):
             cmds.warning('Unable to find {}. Skip...'.format(repr(n)))
             continue
 
-        setShapes(n, d, applyColor=color) if shapes else setOverrideColor(n, d['color'])
+        setShapes(n, d, applyColor=color) if shapes else setOverrideColor(n, d[0]['color'])
 
 
 class ColorButton(QPushButton):
@@ -559,6 +557,7 @@ class CtrlShaper(QDialog):
             return
 
         importShapes(path, selectionFilter=cmds.ls(sl=True), shapes=applyShape, color=applyColor)
+        print('{} imported.'.format(path))
 
     def exportShapes(self):
         path, _ = QFileDialog.getSaveFileName(self, caption='Export Shapes', filter='Controller Shapes (*.ctrl)')
@@ -568,3 +567,4 @@ class CtrlShaper(QDialog):
             return
 
         exportShapes(cmds.ls(sl=True), path)
+        print('{} saved.'.format(path))
