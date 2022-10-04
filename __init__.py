@@ -56,14 +56,12 @@ def scaleShapes(ctrl, factor):
 
 @chunk
 def setOverrideColors(color, dags=tuple()):
-    print 'setOverrideColors', color, dags
     # selection
     selection = cmds.ls(sl=True, long=True) if not dags else dags
-    print selection
 
     # color trs
     trs = cmds.ls(selection, type='transform', long=True)
-    [[setOverrideColor(x, color) for x in cmds.listRelatives(t, shapes=True, type='nurbsCurve')] for t in trs]
+    [[setOverrideColor(x, color) for x in cmds.listRelatives(t, shapes=True, type='nurbsCurve') or list()] for t in trs]
 
     # color curves
     curves = cmds.ls(selection, type='nurbsCurve', long=True)
@@ -172,7 +170,6 @@ def setOverrideColor(dag, color=None):
         rgbColor = color if isRgb else (0, 0, 0)
         indexColor = 0 if isRgb else color
 
-    print enabled, isRgb, rgbColor, indexColor
     cmds.setAttr('{}.overrideEnabled'.format(dag), enabled)
     cmds.setAttr('{}.overrideRGBColors'.format(dag), isRgb)
     cmds.setAttr('{}.overrideColorRGB'.format(dag), *rgbColor)
