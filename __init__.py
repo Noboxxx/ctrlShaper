@@ -12,7 +12,7 @@ from maya.api.OpenMaya import MMatrix
 
 # 1.0
 # TODO: comment code / doc
-
+# TODO: should work on multiple shapes ctrls
 
 # 2.0
 # TODO: manage shape list
