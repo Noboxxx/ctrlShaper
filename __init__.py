@@ -56,12 +56,18 @@ def scaleShapes(ctrl, factor):
 
 @chunk
 def setOverrideColors(color, dags=tuple()):
-    dags = cmds.ls(sl=True, long=True, type=('nurbsCurve', 'transform')) if not dags else dags
-    print 'dags', dags
-    for dag in dags:
-        curves = cmds.listRelatives(dag, shapes=True, type='nurbsCurve', fullPath=True) or list()
-        print 'curves', dag, curves
-        [setOverrideColor(c, color) for c in curves] if curves else setOverrideColor(dag, color)
+    print 'setOverrideColors', color, dags
+    # selection
+    selection = cmds.ls(sl=True, long=True) if not dags else dags
+    print selection
+
+    # color trs
+    trs = cmds.ls(selection, type='transform', long=True)
+    [[setOverrideColor(x, color) for x in cmds.listRelatives(t, shapes=True, type='nurbsCurve')] for t in trs]
+
+    # color curves
+    curves = cmds.ls(selection, type='nurbsCurve', long=True)
+    [setOverrideColor(x, color) for x in curves]
 
 
 ###
@@ -151,7 +157,7 @@ def getOverrideColor(dag):
 
 
 @chunk
-def setOverrideColor(ctrl, color=None):
+def setOverrideColor(dag, color=None):
     if isinstance(color, QColor):
         color = [c/255.0 for c in color.getRgb()]
 
@@ -166,11 +172,11 @@ def setOverrideColor(ctrl, color=None):
         rgbColor = color if isRgb else (0, 0, 0)
         indexColor = 0 if isRgb else color
 
-    for shape in cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve') or list():
-        cmds.setAttr('{}.overrideEnabled'.format(shape), enabled)
-        cmds.setAttr('{}.overrideRGBColors'.format(shape), isRgb)
-        cmds.setAttr('{}.overrideColorRGB'.format(shape), *rgbColor)
-        cmds.setAttr('{}.overrideColor'.format(shape), indexColor)
+    print enabled, isRgb, rgbColor, indexColor
+    cmds.setAttr('{}.overrideEnabled'.format(dag), enabled)
+    cmds.setAttr('{}.overrideRGBColors'.format(dag), isRgb)
+    cmds.setAttr('{}.overrideColorRGB'.format(dag), *rgbColor)
+    cmds.setAttr('{}.overrideColor'.format(dag), indexColor)
 
 
 ###
