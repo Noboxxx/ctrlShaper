@@ -66,7 +66,7 @@ class CtrlShaper(QDialog):
 
         # shapes
         shapesDir = os.path.dirname(os.path.abspath(__file__))
-        with open('{}/shapes.json'.format(shapesDir), 'r') as f:
+        with open('{}/src/shapes.json'.format(shapesDir), 'r') as f:
             shapesData = json.load(f)
 
         # shape
