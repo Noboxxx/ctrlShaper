@@ -17,5 +17,6 @@ Select some controllers (or any transform) to replace its curves by the chosen s
 ### Copy/Export Shapes
 Select a controller (or any transform) to copy its curves. Then paste it on a selection of controllers (or any transform). It's possible to paste only the color or the shape.
 ### Transform Shape
-
+Select some controllers (or curves) to scale them as wanted.
 ### Mirror Shape
+Select some controllers to mirror them based on their names (that can be parameterized using search for and replace by fields). The mirror axes is worldSpace based.
