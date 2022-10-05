@@ -29,7 +29,7 @@ def killOtherInstances(self):
 
 def getMayaMainWindow():
     pointer = OpenMayaUI.MQtUtil.mainWindow()
-    return shiboken2.wrapInstance(long(pointer), QMainWindow)
+    return shiboken2.wrapInstance(int(pointer), QMainWindow)
 
 
 def createSeparator():
