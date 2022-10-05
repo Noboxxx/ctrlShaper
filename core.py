@@ -112,7 +112,7 @@ def addCurve(parent, points=tuple(), degree=1, periodic=False, scale=1.0, normal
     cmds.closeCurve(curve, ch=False, preserveShape=False, replaceOriginal=True) if periodic else None
 
     # Parent Curve
-    cmds.parent(cmds.listRelatives(curve, shapes=True), parent, r=True, s=True)
+    cmds.parent(cmds.listRelatives(curve, shapes=True) or list(), parent, r=True, s=True)
     cmds.delete(curve)
 
     # Rename Curve
@@ -135,7 +135,7 @@ def replaceCurves(ctrl, data, applyColor=True, applyShapes=True):
     :param applyShapes: choose to apply shapes or not (bool)
     :return:
     """
-    oldShapes = cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve')
+    oldShapes = cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve') or list()
     oldColors = [getOverrideColor(s) for s in oldShapes]
 
     if applyShapes:
@@ -146,7 +146,7 @@ def replaceCurves(ctrl, data, applyColor=True, applyShapes=True):
                 normal=d.get('axes', ''), scale=d.get('scale', 1.0)
             )
 
-    newShapes = cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve')
+    newShapes = cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve') or list()
     colors = [d.get('color', None) for d in data]
     for s, o, c in itertools.izip_longest(newShapes, oldColors, colors):
         if not s:
@@ -163,7 +163,7 @@ def getCurvesData(ctrl, objectSpace=True):
     """
     data = list()
 
-    for shape in cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve'):
+    for shape in cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve') or list():
         shapeData = dict()
         shapeData['points'], shapeData['degree'], shapeData['periodic'] = getCurveData(shape, objectSpace=objectSpace)
         shapeData['color'] = getOverrideColor(shape)
