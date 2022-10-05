@@ -3,8 +3,8 @@ import webbrowser
 from PySide2.QtCore import Qt, QSize
 from PySide2.QtGui import QIcon, QPixmap, QColor
 from PySide2.QtWidgets import QMainWindow, QHBoxLayout, QVBoxLayout, QPushButton, QGridLayout, QColorDialog, \
-    QComboBox, QLabel, QDoubleSpinBox, QDialog, QCheckBox, QFrame, qApp, QLineEdit, QFileDialog, QMenuBar, QMenu, \
-    QAction
+    QComboBox, QLabel, QDoubleSpinBox, QDialog, QCheckBox, QFrame, QApplication, QLineEdit, QFileDialog, QMenuBar,\
+    QMenu, QAction
 from ctrlShaper.core import setOverrideColors, chunk, replaceCurves, scaleCurves, getCurvesData, importCurves, \
     exportCurves
 from maya import OpenMayaUI, cmds
@@ -15,7 +15,7 @@ import os
 from maya.api.OpenMaya import MMatrix
 
 
-dpiF = qApp.desktop().logicalDpiX() / 96.0
+dpiF = QApplication.desktop().logicalDpiX() / 96.0
 
 
 def killOtherInstances(self):
