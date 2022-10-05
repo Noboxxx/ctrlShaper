@@ -270,7 +270,7 @@ class CtrlShaper(QDialog):
     def scaleShape(self, scaleUp=True):
         off = self.scaleFactor.value()
         factor = 1 + off if scaleUp else 1 - off
-        [scaleCurves(c, factor) for c in cmds.ls(sl=True, type='transform', long=True)]
+        scaleCurves(cmds.ls(sl=True, dag=True, long=True), factor)
 
     def copyShapes(self):
         selection = cmds.ls(sl=True, long=True, type='transform')

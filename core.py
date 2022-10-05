@@ -30,18 +30,21 @@ def chunk(func):
     return wrapper
 
 
+@chunk
+def scaleCurves(dags, factor):
+    curves = cmds.ls(dags, type='nurbsCurve', long=True)
+    print curves
+    [scaleCurve(x, factor) for x in curves]
+
+    transforms = cmds.ls(dags, type='transform', long=True)
+    for t in transforms:
+        [scaleCurve(x, factor) for x in cmds.listRelatives(t, shapes=True, type='nurbsCurve') or list()]
+
 
 @chunk
-def scaleCurves(dag, factor):
-    """
-    Scale curves under a given dag to a given factor
-    :param dag:
-    :param factor:
-    :return:
-    """
-    for s in cmds.listRelatives(dag, shapes=True, type='nurbsCurve', fullPath=True) or list():
-        scaledPoints = [[v * factor for v in p] for p in getCurveData(s)[0]]
-        [cmds.xform('{}.cv[{}]'.format(s, i), translation=p) for i, p in enumerate(scaledPoints)]
+def scaleCurve(curve, factor):
+    scaledPoints = [[v * factor for v in p] for p in getCurveData(curve)[0]]
+    [cmds.xform('{}.cv[{}]'.format(curve, i), translation=p) for i, p in enumerate(scaledPoints)]
 
 
 @chunk
