@@ -1,7 +1,10 @@
+import webbrowser
+
 from PySide2.QtCore import Qt, QSize
 from PySide2.QtGui import QIcon, QPixmap, QColor
 from PySide2.QtWidgets import QMainWindow, QHBoxLayout, QVBoxLayout, QPushButton, QGridLayout, QColorDialog, \
-    QComboBox, QLabel, QDoubleSpinBox, QDialog, QCheckBox, QFrame, qApp, QLineEdit, QFileDialog
+    QComboBox, QLabel, QDoubleSpinBox, QDialog, QCheckBox, QFrame, qApp, QLineEdit, QFileDialog, QMenuBar, QMenu, \
+    QAction
 from ctrlShaper.core import setOverrideColors, chunk, replaceCurves, scaleCurves, getCurvesData, importCurves, \
     exportCurves
 from maya import OpenMayaUI, cmds
@@ -218,8 +221,21 @@ class CtrlShaper(QDialog):
         mirrorLayout.addLayout(mirrorReplaceLayout)
         mirrorLayout.addWidget(mirrorBtn)
 
+        # menu
+        documentationUrl = 'https://github.com/Noboxxx/ctrlShaper'
+        docAction = QAction('Documentation', self)
+        docAction.setIcon(QIcon(':help.png'))
+        docAction.triggered.connect(partial(webbrowser.open, documentationUrl))
+
+        helpMenu = QMenu('Help')
+        helpMenu.addAction(docAction)
+
+        menuBar = QMenuBar()
+        menuBar.addMenu(helpMenu)
+
         # main layout
         mainLayout = QVBoxLayout(self)
+        mainLayout.setMenuBar(menuBar)
         mainLayout.setAlignment(Qt.AlignTop)
 
         mainLayout.addWidget(QLabel('<b>Color Override</b>'))
