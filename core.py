@@ -33,7 +33,6 @@ def chunk(func):
 @chunk
 def scaleCurves(dags, factor):
     curves = cmds.ls(dags, type='nurbsCurve', long=True)
-    print curves
     [scaleCurve(x, factor) for x in curves]
 
     transforms = cmds.ls(dags, type='transform', long=True)
@@ -151,7 +150,7 @@ def replaceCurves(ctrl, data, applyColor=True, applyShapes=True):
 
     newShapes = cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve') or list()
     colors = [d.get('color', None) for d in data]
-    for s, o, c in itertools.izip_longest(newShapes, oldColors, colors):
+    for s, o, c in itertools.zip_longest(newShapes, oldColors, colors):
         if not s:
             continue
         setOverrideColor(s, c) if applyColor else setOverrideColor(s, o)
