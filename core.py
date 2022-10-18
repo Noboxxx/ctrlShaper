@@ -59,7 +59,7 @@ def setOverrideColors(color, dags=tuple()):
 
     # color trs
     trs = cmds.ls(selection, type='transform', long=True)
-    [[setOverrideColor(x, color) for x in cmds.listRelatives(t, shapes=True, type='nurbsCurve') or list()] for t in trs]
+    [[setOverrideColor(x, color) for x in cmds.listRelatives(t, shapes=True, type='nurbsCurve', fullPath=True) or list()] for t in trs]
 
     # color curves
     curves = cmds.ls(selection, type='nurbsCurve', long=True)
