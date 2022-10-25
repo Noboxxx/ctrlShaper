@@ -100,6 +100,37 @@ class CtrlShaper(QDialog):
         shapeLayout.addLayout(shapeOptionsLayout)
         shapeLayout.addWidget(replaceBtn)
 
+        # Create Controller
+        createCtrlBtn = QPushButton('Create')
+        createCtrlBtn.clicked.connect(self.createControllers)
+
+        self.nameLineEdit = QLineEdit('{n}_C{i}_ctl')
+        self.creationMode = QComboBox()
+        [self.creationMode.addItem(i) for i in ('on selected objects', 'on gizmo')]
+
+        nameLayout = QGridLayout()
+        nameLayout.addWidget(QLabel('Name'))
+        nameLayout.addWidget(self.nameLineEdit, 0, 1)
+        nameLayout.addWidget(QLabel('Mode'), 1, 0)
+        nameLayout.addWidget(self.creationMode, 1, 1)
+        nameLayout.setColumnStretch(0, 1)
+        nameLayout.setColumnStretch(1, 1)
+
+        createControllerLayout = QVBoxLayout()
+        createControllerLayout.addLayout(nameLayout)
+        createControllerLayout.addWidget(createCtrlBtn)
+
+        # tag
+        selectAllBtn = QPushButton('Select All')
+        selectAllBtn.clicked.connect(self.selectTaggedControllers)
+
+        setTagBtn = QPushButton('Tag')
+        setTagBtn.clicked.connect(self.setTag)
+
+        tagLayout = QGridLayout()
+        tagLayout.addWidget(setTagBtn)
+        tagLayout.addWidget(selectAllBtn, 0, 1)
+
         # copy paste
         self.copiedShapeData = None
 
@@ -213,6 +244,8 @@ class CtrlShaper(QDialog):
         mirrorReplaceLayout.addLayout(searchForLayout, 1, 1)
         mirrorReplaceLayout.addWidget(QLabel('Replace by'), 2, 0)
         mirrorReplaceLayout.addWidget(self.replaceBy, 2, 1)
+        mirrorReplaceLayout.setColumnStretch(0, 1)
+        mirrorReplaceLayout.setColumnStretch(1, 1)
 
         mirrorBtn = QPushButton('Mirror')
         mirrorBtn.clicked.connect(self.mirrorShapes)
@@ -238,24 +271,104 @@ class CtrlShaper(QDialog):
         mainLayout.setMenuBar(menuBar)
         mainLayout.setAlignment(Qt.AlignTop)
 
-        mainLayout.addWidget(QLabel('<b>Color Override</b>'))
+        mainLayout.addWidget(QLabel('<b>Color</b>'))
         mainLayout.addLayout(colorLayout)
 
         mainLayout.addWidget(createSeparator())
-        mainLayout.addWidget(QLabel('<b>Replace Shape</b>'))
+        mainLayout.addWidget(QLabel('<b>Shape</b>'))
         mainLayout.addLayout(shapeLayout)
 
         mainLayout.addWidget(createSeparator())
-        mainLayout.addWidget(QLabel('<b>Copy/Export Shapes</b>'))
-        mainLayout.addLayout(copyPasteLayout)
+        mainLayout.addWidget(QLabel('<b>Controller</b>'))
+        mainLayout.addLayout(createControllerLayout)
 
         mainLayout.addWidget(createSeparator())
-        mainLayout.addWidget(QLabel('<b>Transform Shape</b>'))
+        mainLayout.addWidget(QLabel('<b>Tag</b>'))
+        mainLayout.addLayout(tagLayout)
+
+        mainLayout.addWidget(createSeparator())
+        mainLayout.addWidget(QLabel('<b>Transform</b>'))
         mainLayout.addLayout(scaleLayout)
 
         mainLayout.addWidget(createSeparator())
-        mainLayout.addWidget(QLabel('<b>Mirror Shape</b>'))
+        mainLayout.addWidget(QLabel('<b>Copy/Export</b>'))
+        mainLayout.addLayout(copyPasteLayout)
+
+        mainLayout.addWidget(createSeparator())
+        mainLayout.addWidget(QLabel('<b>Mirror</b>'))
         mainLayout.addLayout(mirrorLayout)
+
+    def setTag(self):
+        selection = cmds.ls(sl=True, type='transform', long=True)
+        if not selection:
+            return cmds.warning('Nothing valid selected.')
+        cmds.controller(selection)
+
+    def selectTaggedControllers(self):
+        ctrls = cmds.controller(q=True, allControllers=True)
+        cmds.select(ctrls)
+
+    def getUniqueName(self, pattern, dag=''):
+        name = ''
+        index = 0
+        for n in range(1000):
+            name = pattern.format(i=index, n=dag)
+            if not cmds.objExists(name):
+                break
+            index += 1
+        return name
+
+    @chunk
+    def createController(self, namePattern, shapeData, translation=(0, 0, 0), rotation=(0, 0, 0), dagName='default'):
+        name = ''
+        index = 0
+        for n in range(1000):
+            name = namePattern.format(i=index, n=dagName)
+            if not cmds.objExists(name):
+                break
+            index += 1
+
+        ctl = cmds.group(empty=True, name=name)
+        bfr_ = cmds.group(empty=True, name='{}Bfr'.format(name))
+        cmds.parent(ctl, bfr_)
+
+        cmds.controller(ctl)
+
+        replaceCurves(ctl, [shapeData], applyColor=False)
+
+        cmds.xform(bfr_, translation=translation, rotation=rotation)
+
+        return ctl, bfr_
+
+    @chunk
+    def createControllers(self):
+        namePattern = self.nameLineEdit.text()
+
+        data = self.shapeCombo.currentData()
+        data['axes'] = self.axeShapeCombo.currentText()
+        data['scale'] = self.shapeScale.value()
+
+        mode = self.creationMode.currentIndex()
+
+        if mode == 0:
+            buffers = list()
+            for dag in cmds.ls(sl=True, long=True, type='transform'):
+                t = cmds.xform(dag, q=True, translation=True, worldSpace=True)
+                r = cmds.xform(dag, q=True, rotation=True, worldSpace=True)
+
+                ctl, bfr_ = self.createController(namePattern, data, translation=t, rotation=r, dagName=dag)
+                buffers.append(bfr_)
+
+            cmds.select(buffers) if buffers else None
+
+        elif mode == 1:
+            t = cmds.manipMoveContext('Move', q=True, p=True)
+
+            if t:
+                ctl, bfr_ = self.createController(namePattern, data, translation=t)
+                cmds.select(bfr_)
+            else:
+                cmds.warning('You should be using the Move Tool to proceed.')
 
     def openColorDialog(self):
         colorDialog = QColorDialog(self)
