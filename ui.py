@@ -106,7 +106,7 @@ class CtrlShaper(QDialog):
 
         self.nameLineEdit = QLineEdit('{n}_C{i}_ctl')
         self.creationMode = QComboBox()
-        [self.creationMode.addItem(i) for i in ('on selected objects', 'on gizmo')]
+        [self.creationMode.addItem(i) for i in ('normal', 'on selected objects', 'on gizmo')]
 
         nameLayout = QGridLayout()
         nameLayout.addWidget(QLabel('Name'))
@@ -328,6 +328,10 @@ class CtrlShaper(QDialog):
                 break
             index += 1
 
+        if cmds.objExists(name):
+            cmds.warning('Unable to create -> {}. It already exists.'.format(name))
+            return
+
         ctl = cmds.group(empty=True, name=name)
         bfr_ = cmds.group(empty=True, name='{}Bfr'.format(name))
         cmds.parent(ctl, bfr_)
@@ -351,6 +355,10 @@ class CtrlShaper(QDialog):
         mode = self.creationMode.currentIndex()
 
         if mode == 0:
+            ctl, bfr_ = self.createController(namePattern, data)
+            cmds.select(bfr_) 
+
+        elif mode == 1:
             buffers = list()
             for dag in cmds.ls(sl=True, long=True, type='transform'):
                 shortDagName = dag.split('|')[-1]
@@ -363,7 +371,7 @@ class CtrlShaper(QDialog):
 
             cmds.select(buffers) if buffers else None
 
-        elif mode == 1:
+        elif mode == 2:
             t = cmds.manipMoveContext('Move', q=True, p=True)
 
             if t:
