@@ -364,9 +364,11 @@ class CtrlShaper(QDialog):
                 shortDagName = dag.split('|')[-1]
 
                 t = cmds.xform(dag, q=True, translation=True, worldSpace=True)
+                t = cmds.xform(dag, q=True, matrix=True, worldSpace=True)[12:15]
+                p = cmds.xform(dag, q=True, pivots=True, worldSpace=True)[:4]
                 r = cmds.xform(dag, q=True, rotation=True, worldSpace=True)
 
-                ctl, bfr_ = self.createController(namePattern, data, translation=t, rotation=r, dagName=shortDagName)
+                ctl, bfr_ = self.createController(namePattern, data, translation=[x + y for x, y in zip(t, p)], rotation=r, dagName=shortDagName)
                 buffers.append(bfr_)
 
             cmds.select(buffers) if buffers else None
