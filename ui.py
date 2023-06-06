@@ -165,6 +165,17 @@ class CtrlShaper(QDialog):
         copyPasteLayout.addWidget(export, 3, 0)
         copyPasteLayout.addWidget(import_, 3, 1)
 
+        # search and replace
+        self.searchLine = QLineEdit('search')
+        self.replaceLine = QLineEdit('replace')
+        searchReplaceBtn = QPushButton('Replace')
+        searchReplaceBtn.clicked.connect(self.searchReplace)
+
+        searchReplaceLayout = QGridLayout()
+        searchReplaceLayout.addWidget(self.searchLine, 0, 0)
+        searchReplaceLayout.addWidget(self.replaceLine, 0, 1)
+        searchReplaceLayout.addWidget(searchReplaceBtn, 1, 0)
+
         # color
         colorDialogBtn = QPushButton('Custom')
         colorDialogBtn.setIcon(QIcon(':colorProfile.png'))
@@ -293,6 +304,10 @@ class CtrlShaper(QDialog):
         mainLayout.addWidget(createSeparator())
         mainLayout.addWidget(QLabel('<b>Copy/Export</b>'))
         mainLayout.addLayout(copyPasteLayout)
+
+        mainLayout.addWidget(createSeparator())
+        mainLayout.addWidget(QLabel('<b>Search and Replace</b>'))
+        mainLayout.addLayout(searchReplaceLayout)
 
         mainLayout.addWidget(createSeparator())
         mainLayout.addWidget(QLabel('<b>Mirror</b>'))
@@ -444,6 +459,29 @@ class CtrlShaper(QDialog):
             return
 
         [replaceCurves(dag, self.copiedShapeData, applyColor=applyColor, applyShapes=applyShape) for dag in selection]
+
+    @chunk
+    def searchReplace(self):
+        sourceNodes = cmds.ls(sl=True, type='transform') or cmds.ls(type='transform')
+
+        search = self.searchLine.text()
+        replace = self.replaceLine.text()
+
+        applyColor = self.applyColor.isChecked()
+        applyShape = self.applyShape.isChecked()
+
+        for sourceNode in sourceNodes:
+            if search not in sourceNode:
+                continue
+
+            destNode = sourceNode.replace(search, replace)
+
+            if not cmds.objExists(destNode):
+                print('{} not found.'.format(destNode))
+                continue
+
+            shapeData = getCurvesData(sourceNode)
+            replaceCurves(destNode, shapeData, applyColor=applyColor, applyShapes=applyShape)
 
     @chunk
     def mirrorShapes(self):
