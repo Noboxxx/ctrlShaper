@@ -2,7 +2,6 @@ from maya import cmds
 import json
 import itertools
 
-
 class Chunk(object):
     """
     Make sure a group of maya instructions gets undone together. To use with 'with' statement
@@ -166,6 +165,8 @@ def getCurvesData(ctrl, objectSpace=True):
     data = list()
 
     for shape in cmds.listRelatives(ctrl, shapes=True, fullPath=True, type='nurbsCurve') or list():
+        if cmds.getAttr('{}.intermediateObject'.format(shape)):
+            continue
         shapeData = dict()
         shapeData['points'], shapeData['degree'], shapeData['periodic'] = getCurveData(shape, objectSpace=objectSpace)
         shapeData['color'] = getOverrideColor(shape)
